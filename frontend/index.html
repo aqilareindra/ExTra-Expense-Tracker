@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ExTra — Expense Tracker Berbasis AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">Ex</div>
+        <div>
+          <h1 class="brand-title">ExTra</h1>
+          <p class="brand-subtitle">Pencatat Pengeluaran Struk Belanja Berbasis AI</p>
+        </div>
+      </div>
+
+      <nav class="main-nav" role="tablist" aria-label="Navigasi Utama">
+        <button
+          type="button"
+          class="nav-tab active"
+          role="tab"
+          id="tab-btn-upload"
+          aria-selected="true"
+          aria-controls="panel-upload"
+          data-tab="upload"
+        >
+          Upload &amp; Preview
+        </button>
+        <button
+          type="button"
+          class="nav-tab"
+          role="tab"
+          id="tab-btn-history"
+          aria-selected="false"
+          aria-controls="panel-history"
+          data-tab="history"
+        >
+          Riwayat Transaksi
+        </button>
+        <button
+          type="button"
+          class="nav-tab"
+          role="tab"
+          id="tab-btn-summary"
+          aria-selected="false"
+          aria-controls="panel-summary"
+          data-tab="summary"
+        >
+          Ringkasan Bulanan
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container app-main">
+    <!-- Global Toast / Banner Feedback -->
+    <div id="global-toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: UPLOAD & PREVIEW                                             -->
+    <!-- =================================================================== -->
+    <section
+      id="panel-upload"
+      class="tab-panel active"
+      role="tabpanel"
+      aria-labelledby="tab-btn-upload"
+    >
+      <div class="section-header">
+        <h2>Unggah Foto Struk Belanja</h2>
+        <p>Unggah foto struk (JPG, JPEG, atau PNG, maks. 5 MB) untuk diekstrak otomatis lalu periksa sebelum disimpan.</p>
+      </div>
+
+      <div id="upload-alert" class="alert" role="alert" hidden></div>
+
+      <div class="card" id="upload-card">
+        <form id="upload-form" novalidate>
+          <div
+            id="dropzone"
+            class="dropzone"
+            tabindex="0"
+            role="button"
+            aria-label="Klik atau tarik dan lepas foto struk belanja di sini"
+          >
+            <input
+              type="file"
+              id="receipt-file-input"
+              name="file"
+              accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+              hidden
+            >
+            <div id="dropzone-prompt" class="dropzone-prompt">
+              <div class="dropzone-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="dropzone-title">Klik untuk memilih foto struk atau tarik &amp; lepas ke sini</p>
+              <p class="dropzone-hint">Format didukung: JPG, JPEG, PNG &bull; Ukuran maksimal 5 MB</p>
+            </div>
+
+            <div id="thumbnail-container" class="thumbnail-preview" hidden>
+              <img id="receipt-thumbnail" src="" alt="Pratinjau foto struk belanja">
+              <div class="thumbnail-meta">
+                <p id="selected-file-name" class="file-name"></p>
+                <p id="selected-file-size" class="file-size"></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="upload-actions">
+            <button type="submit" id="btn-extract" class="btn btn-primary" disabled>
+              Ekstrak Isi Struk
+            </button>
+            <button type="button" id="btn-clear-file" class="btn btn-secondary" hidden>
+              Pilih Gambar Lain
+            </button>
+          </div>
+
+          <div id="upload-loading" class="loading-box" aria-live="polite" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <div>
+              <strong>Menganalisis struk...</strong>
+              <p>Mohon tunggu, AI sedang membaca tanggal dan daftar barang belanja Anda.</p>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Editable Preview Card (muncul hanya setelah ekstraksi berhasil) -->
+      <div class="card preview-card" id="preview-section" hidden>
+        <div class="preview-header">
+          <div>
+            <h3>Pratinjau &amp; Verifikasi Hasil Ekstraksi</h3>
+            <p>Periksa dan koreksi tanggal, nama barang, atau harga sebelum menekan <strong>Konfirmasi &amp; Simpan</strong>.</p>
+          </div>
+          <span class="badge badge-info">Belum Tersimpan</span>
+        </div>
+
+        <div id="preview-warning-banner" class="alert alert-warning" role="alert" hidden></div>
+        <div id="preview-validation-alert" class="alert alert-error" role="alert" hidden></div>
+
+        <div class="form-group preview-date-group">
+          <label for="preview-date-input">Tanggal Transaksi <span class="required">*</span></label>
+          <input type="date" id="preview-date-input" class="form-control" required>
+          <small id="preview-date-help" class="field-hint">Format YYYY-MM-DD sesuai tanggal pada struk.</small>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table preview-table">
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th>Nama Barang <span class="required">*</span></th>
+                <th class="col-price-input">Harga (Rp) <span class="required">*</span></th>
+                <th class="col-action-sm">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="preview-items-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="preview-toolbar">
+          <button type="button" id="btn-add-preview-row" class="btn btn-outline">
+            + Tambah Barang
+          </button>
+          <div class="preview-subtotal">
+            Estimasi Total Preview: <strong id="preview-total-display">Rp 0</strong>
+          </div>
+        </div>
+
+        <div class="preview-footer-actions">
+          <button type="button" id="btn-cancel-preview" class="btn btn-secondary">
+            Batal / Upload Ulang
+          </button>
+          <button type="button" id="btn-save-transaction" class="btn btn-primary">
+            Konfirmasi &amp; Simpan
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: RIWAYAT TRANSAKSI                                            -->
+    <!-- =================================================================== -->
+    <section
+      id="panel-history"
+      class="tab-panel"
+      role="tabpanel"
+      aria-labelledby="tab-btn-history"
+      hidden
+    >
+      <div class="section-header">
+        <h2>Riwayat Pengeluaran</h2>
+        <p>Telusuri, cari, koreksi, atau hapus catatan barang yang telah tersimpan.</p>
+      </div>
+
+      <div id="history-alert" class="alert" role="alert" hidden></div>
+
+      <div class="card filter-card">
+        <div class="filter-grid">
+          <div class="form-group">
+            <label for="history-search-input">Cari Nama Barang</label>
+            <input
+              type="search"
+              id="history-search-input"
+              class="form-control"
+              placeholder="Ketik nama barang (mis. Indomie, Kopi)..."
+              autocomplete="off"
+            >
+          </div>
+          <div class="form-group">
+            <label for="history-month-select">Bulan</label>
+            <select id="history-month-select" class="form-control">
+              <option value="">Semua Bulan</option>
+              <option value="1">Januari</option>
+              <option value="2">Februari</option>
+              <option value="3">Maret</option>
+              <option value="4">April</option>
+              <option value="5">Mei</option>
+              <option value="6">Juni</option>
+              <option value="7">Juli</option>
+              <option value="8">Agustus</option>
+              <option value="9">September</option>
+              <option value="10">Oktober</option>
+              <option value="11">November</option>
+              <option value="12">Desember</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="history-year-select">Tahun</label>
+            <select id="history-year-select" class="form-control">
+              <option value="">Semua Tahun</option>
+            </select>
+          </div>
+          <div class="form-group filter-reset-wrap">
+            <button type="button" id="btn-reset-history-filter" class="btn btn-secondary">
+              Reset Filter
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-subheader">
+          <span id="history-count-label" class="muted-label">Memuat data...</span>
+        </div>
+
+        <div id="history-loading" class="loading-inline" hidden>
+          <span class="spinner spinner-sm" aria-hidden="true"></span>
+          <span>Memuat riwayat transaksi...</span>
+        </div>
+
+        <div id="history-empty-state" class="empty-state" hidden>
+          <p class="empty-title" id="history-empty-title">Belum ada catatan transaksi</p>
+          <p class="empty-desc" id="history-empty-desc">Unggah foto struk belanja pertama Anda melalui tab Upload &amp; Preview.</p>
+        </div>
+
+        <div id="history-table-wrapper" class="table-responsive" hidden>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tanggal</th>
+                <th>Nama Barang</th>
+                <th class="text-right">Harga</th>
+                <th class="col-actions">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: RINGKASAN BULANAN                                            -->
+    <!-- =================================================================== -->
+    <section
+      id="panel-summary"
+      class="tab-panel"
+      role="tabpanel"
+      aria-labelledby="tab-btn-summary"
+      hidden
+    >
+      <div class="section-header summary-top-bar">
+        <div>
+          <h2>Ringkasan Pengeluaran Bulanan</h2>
+          <p>Rekapitulasi deterministik total pengeluaran, jumlah barang, dan tren harian.</p>
+        </div>
+
+        <div class="summary-period-picker">
+          <div class="form-group">
+            <label for="summary-month-select">Bulan</label>
+            <select id="summary-month-select" class="form-control">
+              <option value="1">Januari</option>
+              <option value="2">Februari</option>
+              <option value="3">Maret</option>
+              <option value="4">April</option>
+              <option value="5">Mei</option>
+              <option value="6">Juni</option>
+              <option value="7">Juli</option>
+              <option value="8">Agustus</option>
+              <option value="9">September</option>
+              <option value="10">Oktober</option>
+              <option value="11">November</option>
+              <option value="12">Desember</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="summary-year-select">Tahun</label>
+            <select id="summary-year-select" class="form-control"></select>
+          </div>
+        </div>
+      </div>
+
+      <div id="summary-alert" class="alert" role="alert" hidden></div>
+
+      <div class="metrics-grid">
+        <article class="card metric-card">
+          <span class="metric-label">Total Pengeluaran Bulanan</span>
+          <strong id="summary-total-expense" class="metric-value">Rp 0</strong>
+          <span id="summary-period-caption" class="metric-caption">-</span>
+        </article>
+
+        <article class="card metric-card">
+          <span class="metric-label">Jumlah Barang Tercatat</span>
+          <strong id="summary-total-items" class="metric-value">0</strong>
+          <span class="metric-caption">Total baris item pada periode terpilih</span>
+        </article>
+      </div>
+
+      <div id="summary-loading" class="card loading-inline" hidden>
+        <span class="spinner spinner-sm" aria-hidden="true"></span>
+        <span>Menghitung ringkasan bulanan...</span>
+      </div>
+
+      <div id="summary-empty-state" class="card empty-state" hidden>
+        <p class="empty-title">Belum ada pengeluaran tercatat pada bulan ini</p>
+        <p class="empty-desc">Pilih bulan/tahun lain atau unggah struk belanja baru untuk melihat grafik dan rincian harian.</p>
+      </div>
+
+      <div id="summary-content" hidden>
+        <div class="card chart-card">
+          <h3>Grafik Pengeluaran Harian</h3>
+          <p class="chart-subtitle">Subtotal belanja per tanggal transaksi pada bulan terpilih</p>
+          <div id="summary-chart-container" class="chart-scroll-wrap" aria-label="Grafik batang pengeluaran harian"></div>
+        </div>
+
+        <div class="card">
+          <h3>Rincian Pengeluaran per Tanggal</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tanggal Transaksi</th>
+                  <th class="text-right">Jumlah Barang</th>
+                  <th class="text-right">Subtotal Pengeluaran</th>
+                </tr>
+              </thead>
+              <tbody id="summary-daily-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL EDIT ITEM RIWAYAT                                               -->
+  <!-- ===================================================================== -->
+  <div id="edit-modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="edit-modal-title">Edit Item Pengeluaran</h3>
+        <button type="button" id="btn-close-edit-modal" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <form id="edit-item-form" novalidate>
+        <div id="edit-modal-alert" class="alert alert-error" role="alert" hidden></div>
+        <input type="hidden" id="edit-item-id">
+
+        <div class="form-group">
+          <label for="edit-item-date">Tanggal Transaksi <span class="required">*</span></label>
+          <input type="date" id="edit-item-date" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-item-name">Nama Barang <span class="required">*</span></label>
+          <input type="text" id="edit-item-name" class="form-control" maxlength="200" required>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-item-price">Harga (Rp — bilangan bulat) <span class="required">*</span></label>
+          <input type="number" id="edit-item-price" class="form-control" min="0" step="1" required>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="btn-cancel-edit-modal" class="btn btn-secondary">Batal</button>
+          <button type="submit" id="btn-submit-edit-modal" class="btn btn-primary">Simpan Perubahan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL KONFIRMASI HAPUS                                                -->
+  <!-- ===================================================================== -->
+  <div id="delete-modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 id="delete-modal-title">Konfirmasi Penghapusan</h3>
+        <button type="button" id="btn-close-delete-modal" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-modal-message"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-cancel-delete-modal" class="btn btn-secondary">Batal</button>
+        <button type="button" id="btn-confirm-delete-modal" class="btn btn-danger">Ya, Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/upload.js"></script>
+  <script src="/js/history.js"></script>
+  <script src="/js/summary.js"></script>
+</body>
+</html>
