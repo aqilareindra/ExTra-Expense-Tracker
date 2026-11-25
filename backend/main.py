@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,7 @@ from backend.routers.summary import router as summary_router
 from backend.routers.transactions import router as transactions_router
 
 FRONTEND_DIR = config.BASE_DIR / "frontend"
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -86,6 +88,23 @@ async def http_exception_handler(
             "status": "error",
             "error_code": error_code,
             "message": str(exc.detail),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    _request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    """Cegah kebocoran stack trace internal ke client pada error tak terduga."""
+    logger.error("Unhandled server error (%s).", type(exc).__name__)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "error_code": "INTERNAL_SERVER_ERROR",
+            "message": "Terjadi kesalahan internal pada server. Silakan coba lagi.",
         },
     )
 

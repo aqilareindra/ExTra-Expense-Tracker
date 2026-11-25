@@ -1,4 +1,4 @@
-"""Integration test endpoint FastAPI Milestone 1 s/d Milestone 5."""
+"""Integration & E2E lifecycle test endpoint FastAPI Milestone 1 s/d Milestone 6."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -119,9 +119,11 @@ def test_get_transactions_filters_and_search(client: TestClient) -> None:
 @pytest.mark.parametrize(
     "invalid_payload",
     [
+        {"date": "2026-02-29", "items": [{"name": "Aqua", "price": 4000}]},
         {"date": "2026-02-30", "items": [{"name": "Aqua", "price": 4000}]},
         {"date": "2026-11-24", "items": []},
         {"date": "2026-11-24", "items": [{"name": "   ", "price": 4000}]},
+        {"date": "2026-11-24", "items": [{"name": "Aqua", "price": -1}]},
         {"date": "2026-11-24", "items": [{"name": "Aqua", "price": -500}]},
         {"date": "2026-11-24", "items": [{"name": "Aqua", "price": 4000.5}]},
     ],
@@ -619,3 +621,161 @@ def test_frontend_root_and_static_assets_served(client: TestClient) -> None:
     for js_file in ("api.js", "upload.js", "history.js", "summary.js"):
         js_resp = client.get(f"/js/{js_file}")
         assert js_resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Milestone 6: Hardening & Full API Lifecycle Integration Tests
+# ---------------------------------------------------------------------------
+
+
+def test_zero_price_item_allowed_end_to_end(client: TestClient) -> None:
+    resp = client.post(
+        "/api/transactions",
+        json={
+            "date": "2026-11-24",
+            "items": [
+                {"name": "Kantong Belanja Promo", "price": 0},
+                {"name": "Roti Tawar", "price": 14000},
+            ],
+        },
+    )
+    assert resp.status_code == 201
+    summary = client.get(
+        "/api/summary/monthly", params={"month": 11, "year": 2026}
+    ).json()
+    assert summary["total_expense"] == 14000
+    assert summary["total_items"] == 2
+
+
+def test_full_api_lifecycle_extract_confirm_edit_delete_and_orphan_cleanup(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 1. Ekstraksi struk via AI (mock) -> tidak boleh otomatis tersimpan ke DB
+    monkeypatch.setattr(
+        ai_service,
+        "extract_receipt_from_image",
+        lambda **_kw: ReceiptExtractResponse(
+            data=ReceiptPreviewData(
+                date="2026-11-18",
+                items=[
+                    ExtractedItem(name="Susu UHT", price=6500),
+                    ExtractedItem(name="Roti Gandum", price=15000),
+                ],
+            ),
+            warnings=[],
+        ),
+    )
+
+    extract_resp = client.post(
+        "/api/receipts/extract",
+        files={"file": ("struk_belanja.jpg", VALID_JPEG_BYTES, "image/jpeg")},
+    )
+    assert extract_resp.status_code == 200
+    preview = extract_resp.json()["data"]
+    assert client.get("/api/transactions").json()["count"] == 0
+    assert (
+        client.get("/api/summary/monthly", params={"month": 11, "year": 2026}).json()[
+            "total_expense"
+        ]
+        == 0
+    )
+
+    # 2. Pengguna mengonfirmasi & menyimpan hasil preview -> POST /api/transactions
+    save_resp = client.post("/api/transactions", json=preview)
+    assert save_resp.status_code == 201
+    saved_data = save_resp.json()["data"]
+    tx_id = saved_data["transaction_id"]
+    item_1_id = saved_data["items"][0]["id"]
+    item_2_id = saved_data["items"][1]["id"]
+
+    # 3. Verifikasi riwayat & ringkasan bulanan awal (6500 + 15000 = 21500, 2 item)
+    history_after_save = client.get("/api/transactions").json()
+    assert history_after_save["count"] == 2
+
+    summary_after_save = client.get(
+        "/api/summary/monthly", params={"month": 11, "year": 2026}
+    ).json()
+    assert summary_after_save == {
+        "status": "success",
+        "month": 11,
+        "year": 2026,
+        "total_expense": 21500,
+        "total_items": 2,
+        "daily_breakdown": [
+            {"date": "2026-11-18", "total": 21500, "item_count": 2},
+        ],
+    }
+
+    # 4. Edit harga & tanggal item pertama -> PUT /api/items/{id}
+    edit_resp = client.put(
+        f"/api/items/{item_1_id}",
+        json={"name": "Susu UHT 250ml", "price": 7000, "date": "2026-11-19"},
+    )
+    assert edit_resp.status_code == 200
+    moved_tx_id = edit_resp.json()["data"]["transaction_id"]
+    assert moved_tx_id != tx_id
+
+    summary_after_edit = client.get(
+        "/api/summary/monthly", params={"month": 11, "year": 2026}
+    ).json()
+    assert summary_after_edit == {
+        "status": "success",
+        "month": 11,
+        "year": 2026,
+        "total_expense": 22000,
+        "total_items": 2,
+        "daily_breakdown": [
+            {"date": "2026-11-18", "total": 15000, "item_count": 1},
+            {"date": "2026-11-19", "total": 7000, "item_count": 1},
+        ],
+    }
+
+    # 5. Hapus kedua item -> verifikasi orphan cleanup & summary kembali ke 0
+    del_1 = client.delete(f"/api/items/{item_1_id}")
+    assert del_1.status_code == 200
+    assert del_1.json()["orphan_transaction_deleted"] is True
+
+    del_2 = client.delete(f"/api/items/{item_2_id}")
+    assert del_2.status_code == 200
+    assert del_2.json()["orphan_transaction_deleted"] is True
+
+    # Pastikan kedua transaksi induk sudah terhapus bersih (orphan cleanup)
+    assert client.delete(f"/api/transactions/{tx_id}").status_code == 404
+    assert client.delete(f"/api/transactions/{moved_tx_id}").status_code == 404
+    assert client.get("/api/transactions").json()["count"] == 0
+
+    summary_final = client.get(
+        "/api/summary/monthly", params={"month": 11, "year": 2026}
+    ).json()
+    assert summary_final == {
+        "status": "success",
+        "month": 11,
+        "year": 2026,
+        "total_expense": 0,
+        "total_items": 0,
+        "daily_breakdown": [],
+    }
+
+
+def test_unhandled_exception_returns_generic_500_without_stack_trace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import transaction_service
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "err_test.db"))
+
+    def explode(**_kw: object) -> list[object]:
+        raise RuntimeError("sensitif_internal_path_secret_xyz")
+
+    monkeypatch.setattr(transaction_service, "get_transactions", explode)
+
+    with TestClient(app, raise_server_exceptions=False) as safe_client:
+        resp = safe_client.get("/api/transactions")
+        assert resp.status_code == 500
+        body = resp.json()
+        assert body["status"] == "error"
+        assert body["error_code"] == "INTERNAL_SERVER_ERROR"
+        assert "Traceback" not in body["message"]
+        assert "sensitif_internal_path_secret_xyz" not in body["message"]

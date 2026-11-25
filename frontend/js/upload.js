@@ -54,8 +54,9 @@
       }
 
       const lowerName = (file.name || "").toLowerCase();
+      const lowerMime = (file.type || "").toLowerCase();
       const hasValidExt = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
-      const hasValidMime = ALLOWED_MIMES.includes((file.type || "").toLowerCase());
+      const hasValidMime = lowerMime === "" || ALLOWED_MIMES.includes(lowerMime);
 
       if (!hasValidExt || !hasValidMime) {
         return "Format file tidak didukung. Pilih gambar berformat JPG, JPEG, atau PNG.";

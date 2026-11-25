@@ -9,6 +9,10 @@ from backend.schemas.receipt import (
     ReceiptExtractResponse,
     ReceiptPreviewData,
 )
+from backend.schemas.summary import (
+    DailyExpenseBreakdown,
+    MonthlySummaryResponse,
+)
 from backend.schemas.transaction import (
     ItemUpdateRequest,
     TransactionCreateRequest,
@@ -69,6 +73,7 @@ class TestTransactionCreateRequest:
     @pytest.mark.parametrize(
         "invalid_date",
         [
+            "2026-02-29",
             "2026-02-30",
             "2025-02-29",
             "2026-13-01",
@@ -184,6 +189,7 @@ class TestReceiptExtractionSchemas:
             "tidak terbaca",
             "24-11-2026",
             "2026/11/24",
+            "2026-02-29",
             "2026-02-30",
             "2025-02-29",
             20261124,
@@ -237,3 +243,31 @@ class TestReceiptExtractionSchemas:
             },
             "warnings": [],
         }
+
+
+class TestMonthlySummarySchemas:
+    """Pengujian skema Pydantic ringkasan bulanan (DailyExpenseBreakdown & MonthlySummaryResponse)."""
+
+    def test_valid_monthly_summary_and_zero_values(self) -> None:
+        summary = MonthlySummaryResponse(
+            month=11,
+            year=2026,
+            total_expense=0,
+            total_items=1,
+            daily_breakdown=[
+                DailyExpenseBreakdown(date="2026-11-24", total=0, item_count=1)
+            ],
+        )
+        assert summary.status == "success"
+        assert summary.total_expense == 0
+        assert summary.daily_breakdown[0].total == 0
+
+    def test_rejects_invalid_breakdown_date_or_negative_numbers(self) -> None:
+        with pytest.raises(ValidationError):
+            DailyExpenseBreakdown(date="2026-02-29", total=5000, item_count=1)
+
+        with pytest.raises(ValidationError):
+            DailyExpenseBreakdown(date="2026-11-24", total=-1, item_count=1)
+
+        with pytest.raises(ValidationError):
+            DailyExpenseBreakdown(date="2026-11-24", total=5000.5, item_count=1)  # type: ignore[arg-type]

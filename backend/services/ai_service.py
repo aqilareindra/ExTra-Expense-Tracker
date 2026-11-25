@@ -136,16 +136,15 @@ def extract_receipt_from_image(
         logger.error("Kredensial Gemini belum terkonfigurasi dengan benar.")
         raise AIConfigurationError() from exc
 
-    client = _create_genai_client(api_key)
-    image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-    generation_config = types.GenerateContentConfig(
-        system_instruction=RECEIPT_SYSTEM_INSTRUCTION,
-        response_mime_type="application/json",
-        response_schema=ReceiptExtractionResult,
-        temperature=0.0,
-    )
-
     try:
+        client = _create_genai_client(api_key)
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        generation_config = types.GenerateContentConfig(
+            system_instruction=RECEIPT_SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
+            response_schema=ReceiptExtractionResult,
+            temperature=0.0,
+        )
         response = client.models.generate_content(
             model=app_config.GEMINI_MODEL,
             contents=[image_part, RECEIPT_EXTRACTION_USER_PROMPT],
