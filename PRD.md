@@ -3,142 +3,120 @@
 | Atribut Dokumen | Detail |
 | :--- | :--- |
 | **Nama Produk** | ExTra (Expense Tracker) |
-| **Versi Dokumen** | 1.0 (MVP Specification) |
-| **Tipe Aplikasi** | AI-Powered Web Application |
-| **Tanggal Penyusunan** | 24 November 2026 |
-| **Status** | Draft Final — Siap untuk Implementasi di Google Antigravity |
-| **Tujuan Dokumen** | Pedoman tunggal (Single Source of Truth) arsitektur, kontrak data, batasan fitur, dan roadmap pengembangan MVP |
+| **Versi Dokumen** | 2.0 (Expansion & Production Roadmap Specification) |
+| **Baseline Rilis** | v1.0.0 (MVP Selesai & Terverifikasi) |
+| **Tipe Aplikasi** | AI-Powered Full-Stack Web Application |
+| **Tanggal Pembaruan** | 25 November 2026 |
+| **Status** | Aktif — Siap Masuk Gelombang 1 (v1.0.1 & v1.1) |
+| **Tujuan Dokumen** | Pedoman tunggal (*Single Source of Truth*) arsitektur, kontrak data, batasan ruang lingkup, dan peta jalan pengembangan bertahap pasca-MVP |
 
 ---
 
 ## 1. Product Overview
 
-**ExTra (Expense Tracker)** adalah aplikasi pencatatan dan pemantauan pengeluaran pribadi berbasis web yang memanfaatkan **Multimodal AI (Vision)** untuk mengotomatisasi konversi foto struk belanja fisik menjadi catatan transaksi digital terstruktur.
+**ExTra (Expense Tracker)** adalah aplikasi pencatatan dan pemantauan keuangan pribadi berbasis web yang memanfaatkan **Multimodal AI (Vision)** untuk mengotomatisasi konversi foto struk belanja fisik menjadi catatan transaksi digital terstruktur.
 
-Alur kerja inti aplikasi menempatkan AI sebagai asisten ekstraksi dan pengguna sebagai pengambil keputusan akhir (*human-in-the-loop*):
-1. Pengguna mengunggah foto struk belanja melalui antarmuka web.
-2. Backend mengirimkan gambar ke **Google Gemini Flash API** untuk mengekstrak tiga informasi inti: **nama barang**, **harga per barang**, dan **tanggal transaksi**.
-3. Hasil ekstraksi divalidasi secara skema menggunakan **Pydantic**, lalu ditampilkan pada halaman pratinjau (*preview*) agar pengguna dapat memeriksa dan mengoreksi kesalahan sebelum disimpan ke database **SQLite**.
-4. Data tersimpan digunakan untuk menampilkan **riwayat transaksi** serta **ringkasan pengeluaran bulanan** yang seluruh perhitungannya dilakukan secara deterministik oleh backend Python.
+Setelah **MVP v1.0.0** berhasil dibangun dan diverifikasi, dokumen ini memperluas spesifikasi produk menuju aplikasi produksi yang lebih tangguh, nyaman digunakan di perangkat mobile, dan mendukung skala multi-pengguna melalui tiga gelombang pengembangan:
+* **Baseline v1.0.0 (Selesai):** Upload foto struk, ekstraksi AI (tanggal, nama barang, harga), validasi Pydantic dua tahap, tabel *preview* interaktif (*human-in-the-loop*), riwayat transaksi, dan ringkasan bulanan deterministik dengan SQLite + Vanilla Web UI.
+* **Gelombang 1 — AI Hardening (v1.0.1) & Fitur Produktivitas (v1.1):** Kompresi gambar pra-kirim, mekanisme *auto-retry* & *fallback model*, input pengeluaran manual tanpa struk, kategorisasi pengeluaran otomatis dengan koreksi manual, arsip foto struk, serta ekspor laporan ke CSV/Excel.
+* **Gelombang 2 — Modernisasi Frontend (v1.5):** Migrasi antarmuka dari Vanilla HTML/CSS/JS ke **React + Vite + Tailwind CSS** untuk pengalaman pengguna yang lebih responsif dan modern.
+* **Gelombang 3 — Deployment & Ekspansi Produk (v1.2 – v2.0):** Containerization dengan Docker, CI/CD dasar, autentikasi multi-user, migrasi database ke PostgreSQL, pencatatan pemasukan & anggaran (*budgeting*), serta modul rekomendasi finansial berbasis AI yang terpisah dari alur ekstraksi.
 
 ---
 
 ## 2. Problem Statement
 
-* **Beban Pencatatan Manual Tinggi:** Mencatat pengeluaran harian menuntut pengguna mengetik nama barang, harga, dan tanggal transaksi satu per satu. Proses yang repetitif ini menyebabkan pengguna cepat berhenti mencatat pengeluaran secara konsisten.
-* **Data Struk Fisik Tidak Terpakai:** Struk belanja sebenarnya sudah memuat detail transaksi yang lengkap, namun umumnya hanya disimpan sementara lalu dibuang tanpa pernah direkap untuk evaluasi bulanan.
-* **Ketidakandalan Otomatisasi Penuh:** Mengandalkan AI untuk langsung menyimpan data ke database tanpa verifikasi berisiko menghasilkan data keuangan yang keliru akibat struk buram, kusut, atau salah baca angka.
+* **Beban Pencatatan Manual & Transaksi Non-Struk:** Tidak semua pengeluaran memiliki struk fisik (seperti parkir, transportasi, atau jajan tunai), sementara pengeluaran berstruk membutuhkan otomatisasi OCR/Vision agar pengguna tidak lelah mengetik item satu per satu.
+* **Ketahanan Layanan AI di Dunia Nyata:** Ukuran foto kamera ponsel yang besar (3–5 MB) memperlambat proses unggah dan memperbesar risiko *timeout* atau error sementara (`429`/`503`) dari API eksternal.
+* **Kebutuhan Evaluasi Kategori & Anggaran:** Pengguna membutuhkan pengelompokan kategori belanja, batas anggaran bulanan, serta akses lintas perangkat (terutama ponsel) tanpa kehilangan kendali verifikasi data (*human-in-the-loop*).
+* **Risiko Halusinasi Angka oleh LLM:** Penyerahan kalkulasi total pengeluaran, sisa anggaran, maupun agregasi statistik langsung kepada LLM berisiko menghasilkan angka keliru.
 
-**Solusi ExTra:** Menyederhanakan input data dengan ekstraksi struk otomatis berbasis Gemini Vision, digabungkan dengan validasi skema ketat (Pydantic) dan tahap konfirmasi pengguna agar data pengeluaran tetap akurat dengan usaha input minimal.
+**Solusi ExTra:** Mempertahankan pemisahan tegas antara AI (untuk ekstraksi terstruktur dan narasi wawasan berbasis data matang) dan backend deterministik (untuk seluruh perhitungan matematika keuangan), sambil meningkatkan pengalaman pengguna secara bertahap.
 
 ---
 
 ## 3. Product Goals & Objectives
 
-| Kategori | Objektif | Indikator Keberhasilan (Target MVP) |
+| Fase | Objektif Utama | Indikator Keberhasilan |
 | :--- | :--- | :--- |
-| **Efisiensi Input** | Memangkas waktu pencatatan struk belanja dibanding input manual. | Waktu dari upload foto hingga data tersimpan di database kurang dari 30 detik untuk struk berisi 5–10 barang. |
-| **Integritas Data** | Menjamin tidak ada data transaksi invalid yang masuk ke database. | 100% data tersimpan lolos validasi Pydantic dan melewati konfirmasi manual pengguna. |
-| **Akurasi Perhitungan** | Menghilangkan risiko halusinasi AI dalam kalkulasi angka keuangan. | 100% perhitungan total bulanan, jumlah item, dan agregasi per tanggal dilakukan di backend Python/SQL, bukan LLM. |
-| **Kesiapan Arsitektur** | Membangun fondasi kode modular untuk pembelajaran AI Engineering. | Pemisahan tanggung jawab jelas antara Frontend, Backend API, AI Processing Layer, dan Database tanpa library berlebihan. |
+| **v1.0.0 (Baseline)** | Membuktikan alur ekstraksi struk berbasis Gemini Vision + *human-in-the-loop* + kalkulasi deterministik. | **Tercapai:** Seluruh AC-01 s/d AC-06 lulus dan ter-push ke GitHub. |
+| **Gelombang 1 (v1.0.1 – v1.1)** | Meningkatkan ketahanan panggilan AI terhadap error sementara serta melengkapi alur pencatatan harian. | Kompresi gambar memangkas ukuran upload > 50%; *auto-retry* menangani error sementara `429`/`503`; mendukung input manual, kategori, arsip struk, dan ekspor CSV. |
+| **Gelombang 2 (v1.5)** | Menghadirkan antarmuka modern yang cepat dan nyaman di layar ponsel maupun desktop. | Seluruh fitur v1.1 berjalan mulus di atas **React + Vite + Tailwind CSS** tanpa regresi kontrak API. |
+| **Gelombang 3 (v1.2 – v2.0)** | Memungkinkan aplikasi di-deploy ke cloud dan digunakan banyak pengguna dengan isolasi data serta fitur budgeting. | Aplikasi berjalan dalam container Docker, mendukung login multi-user di PostgreSQL, serta menyajikan budgeting dan AI insights tanpa halusinasi angka. |
 
 ---
 
 ## 4. Target Users & User Personas
 
-Aplikasi MVP ini dirancang untuk penggunaan tunggal (personal/lokal) dengan tiga segmen utama: individu yang ingin mencatat pengeluaran harian, mahasiswa yang memantau anggaran bulanan, serta pengguna yang menginginkan rekap belanja tanpa input manual.
+### Persona 1: Mahasiswa & Pekerja Muda (Pengguna Harian Mobile-First)
+* **Profil:** Raka (20 tahun) dan Dina (25 tahun), mencatat pengeluaran harian baik dari struk minimarket maupun jajan tunai tanpa struk.
+* **Tujuan:** Memotret struk langsung dari browser ponsel setelah belanja, memantau kategori pengeluaran terbesar, dan menjaga belanja bulanan tetap di bawah batas anggaran.
+* **Pain Points:** Unggah foto kamera HP sering lambat jika tidak dikompresi, dan pencatatan jajan non-struk belum terakomodasi.
 
-### Persona 1: Mahasiswa Pengelola Uang Saku
-* **Profil:** Raka, 20 tahun, mahasiswa kos dengan jatah uang bulanan tetap.
-* **Tujuan:** Mengetahui total pengeluaran bulanan untuk kebutuhan harian (makanan, minuman, perlengkapan kos) agar uang tidak habis sebelum akhir bulan.
-* **Pain Points:** Sering lupa mencatat pembelian kecil di minimarket karena malas mengetik setiap item satu per satu.
-* **Skenario Penggunaan:** Setelah belanja di minimarket, Raka memotret struk dengan ponsel, mengunggahnya ke ExTra, memeriksa cepat harga barang di tabel preview, lalu klik simpan.
-
-### Persona 2: Pekerja Muda Pencatat Pengeluaran Pribadi
-* **Profil:** Dina, 25 tahun, staf junior yang mulai membangun kebiasaan evaluasi keuangan pribadi setiap akhir bulan.
-* **Tujuan:** Memiliki riwayat belanja yang rapi, mudah dicari berdasarkan nama barang, dan menyajikan grafik pengeluaran bulanan.
-* **Pain Points:** Kertas struk sering pudar atau hilang sebelum sempat direkap ke catatan manual di akhir pekan.
-* **Skenario Penggunaan:** Dina mengunggah beberapa struk belanja mingguan ke ExTra dan membuka halaman ringkasan bulanan di akhir bulan untuk mengevaluasi tanggal dengan pengeluaran tertinggi.
+### Persona 2: Pengguna Multi-Perangkat & Evaluasi Keuangan Pribadi
+* **Profil:** Pengguna aktif yang mengakses ExTra dari ponsel saat bepergian dan dari laptop saat akhir bulan untuk mengunduh laporan CSV/Excel serta meninjau pola konsumsi lintas bulan.
+* **Tujuan:** Memiliki akun pribadi yang aman, data tersimpan permanen di cloud, serta ringkasan anggaran dan rekomendasi penghematan yang mudah dipahami.
 
 ---
 
 ## 5. User Stories
 
-| ID | Sebagai... | Saya ingin... | Agar... | Modul Terkait |
+### Baseline v1.0.0 (Sudah Terimplementasi)
+* **US-01 s/d US-09:** Unggah foto struk (JPG/JPEG/PNG), indikator loading, ekstraksi otomatis (`date`, `name`, `price`), tabel *preview* interaktif (*editable*), konfirmasi eksplisit sebelum simpan, riwayat transaksi (cari & filter bulan/tahun, edit, hapus), serta ringkasan bulanan + grafik batang.
+
+### Gelombang 1 — AI Hardening & Produktivitas (v1.0.1 – v1.1)
+| ID | Sebagai... | Saya ingin... | Agar... | Fase |
 | :--- | :--- | :--- | :--- | :--- |
-| **US-01** | Pengguna | Mengunggah foto struk belanja berformat JPG, JPEG, atau PNG | Saya tidak perlu mengetik daftar belanjaan secara manual | Receipt Upload |
-| **US-02** | Pengguna | Melihat indikator status saat struk sedang diproses AI | Saya tahu sistem sedang bekerja dan tidak menekan tombol berulang kali | Receipt Upload |
-| **US-03** | Pengguna | Sistem otomatis mengekstrak nama barang, harga per barang, dan tanggal transaksi dari foto struk | Seluruh item belanja langsung tersedia dalam bentuk data digital | AI Receipt Extraction |
-| **US-04** | Pengguna | Memeriksa dan mengedit hasil ekstraksi AI dalam tabel sebelum disimpan | Kesalahan pembacaan AI dapat saya perbaiki sebelum masuk ke riwayat | Data Validation & Preview |
-| **US-05** | Pengguna | Mengonfirmasi secara eksplisit sebelum data disimpan | Tidak ada data yang tersimpan secara tidak sengaja | Data Validation & Preview |
-| **US-06** | Pengguna | Melihat daftar seluruh transaksi tersimpan serta mencari nama barang tertentu | Saya dapat melacak kapan dan berapa harga barang yang pernah dibeli | Expense History |
-| **US-07** | Pengguna | Memfilter riwayat transaksi berdasarkan bulan dan tahun | Saya dapat fokus melihat pengeluaran pada periode tertentu | Expense History |
-| **US-08** | Pengguna | Mengedit atau menghapus catatan transaksi yang sudah tersimpan | Riwayat pengeluaran tetap akurat apabila ada koreksi di kemudian hari | Expense History |
-| **US-09** | Pengguna | Melihat total pengeluaran bulanan, jumlah barang, daftar per tanggal, dan grafik sederhana | Saya dapat mengevaluasi pola pengeluaran bulanan secara cepat | Monthly Expense Summary |
+| **US-10** | Pengguna | Foto struk berukuran besar otomatis dikompresi dan sistem mencoba ulang otomatis saat API sibuk | Proses analisis lebih cepat dan tidak mudah gagal karena gangguan sementara | v1.0.1 |
+| **US-11** | Pengguna | Menambahkan pengeluaran secara manual tanpa mengunggah foto struk | Transaksi tanpa struk fisik tetap tercatat dalam satu riwayat terpadu | v1.1 |
+| **US-12** | Pengguna | Sistem otomatis menebak kategori tiap barang dan mengizinkan saya mengubahnya di tabel preview/edit | Saya dapat memantau pengeluaran berdasarkan kategori belanja | v1.1 |
+| **US-13** | Pengguna | Mengunduh riwayat pengeluaran bulanan ke file CSV/Excel dan melihat kembali foto struk tersimpan | Saya bisa mengolah data di spreadsheet dan mengecek bukti fisik transaksi | v1.1 |
+
+### Gelombang 2 — Modernisasi Frontend (v1.5)
+| ID | Sebagai... | Saya ingin... | Agar... | Fase |
+| :--- | :--- | :--- | :--- | :--- |
+| **US-14** | Pengguna | Menggunakan antarmuka modern berbasis React & Tailwind CSS yang nyaman di layar HP | Navigasi, form edit, dan visualisasi grafik terasa cepat dan responsif | v1.5 |
+
+### Gelombang 3 — Deployment, Multi-User & Analitik (v1.2 – v2.0)
+| ID | Sebagai... | Saya ingin... | Agar... | Fase |
+| :--- | :--- | :--- | :--- | :--- |
+| **US-15** | Pengguna | Mendaftar, login, dan mengakses ExTra secara online melalui URL HTTPS | Data pengeluaran saya terisolasi aman dan bisa diakses dari mana saja | v1.2 / v2.0 |
+| **US-16** | Pengguna | Mencatat pemasukan, mengatur anggaran bulanan per kategori, dan membaca ringkasan AI bulanan | Saya tahu sisa anggaran secara real-time dan mendapat saran penghematan yang relevan | v2.0 |
 
 ---
 
 ## 6. Functional Requirements
 
-### A. Receipt Upload
-* **FR-01:** Sistem menyediakan antarmuka unggah gambar struk (file picker dan/atau drag-and-drop) dengan pratinjau gambar (*thumbnail preview*) sebelum dikirim.
-* **FR-02:** Sistem hanya menerima file gambar dengan ekstensi dan MIME type yang valid: `JPG`, `JPEG`, dan `PNG`.
-* **FR-03:** Sistem memvalidasi ukuran file di sisi frontend dan backend (batas maksimal **5 MB** per file untuk menjaga kecepatan upload dan pemrosesan API).
-* **FR-04:** Sistem menampilkan status pemrosesan yang jelas (*uploading / analyzing receipt*) serta menonaktifkan tombol submit selama proses berjalan untuk mencegah duplikasi request.
+### A. Baseline v1.0.0 (Sudah Selesai)
+* **FR-01 s/d FR-20:** Tetap berlaku penuh sebagai fondasi sistem (validasi file gambar, ekstraksi Gemini Vision, validasi Pydantic dua tahap, tabel preview editable, CRUD riwayat, filter periode, dan kalkulasi ringkasan bulanan deterministik).
 
-### B. AI Receipt Extraction
-* **FR-05:** Backend mengirimkan gambar struk tervalidasi ke **Google Gemini Flash API** dengan instruksi ekstraksi multimodal vision.
-* **FR-06:** AI mengekstrak seluruh item belanja yang tertera pada struk dengan cakupan data **dibatasi ketat** hanya pada:
-  1. `date`: Tanggal transaksi pada struk (format `YYYY-MM-DD`).
-  2. `items[].name`: Nama masing-masing barang.
-  3. `items[].price`: Harga masing-masing barang dalam angka numerik.
-* **FR-07:** AI **dilarang** mengekstrak atau menyertakan nama toko, alamat toko, nomor telepon, metode pembayaran, kasir, kembalian, atau informasi lain di luar skema.
-* **FR-08:** Output AI wajib mengikuti kontrak JSON terstruktur berikut:
+### B. Gelombang 1 — AI Hardening (v1.0.1) & Produktivitas (v1.1)
+* **FR-21 (Kompresi Gambar Pra-Kirim):** Sebelum dikirim ke Gemini API, backend mengompresi gambar beresolusi tinggi menggunakan `Pillow` (lebar maksimum `1280px`, menjaga rasio aspek, kualitas JPEG teroptimasi) tanpa mengurangi keterbacaan teks struk.
+* **FR-22 (Auto-Retry & Model Fallback):** `ai_service.py` menerapkan mekanisme *retry* dengan *exponential backoff* (maksimal 3 percobaan) khusus untuk error sementara (`429 Rate Limit` dan `503 Service Unavailable`), serta mendukung variabel environment `GEMINI_FALLBACK_MODEL` apabila model utama tetap gagal.
+* **FR-23 (Input Pengeluaran Manual):** Antarmuka menyediakan mode/form **Tambah Manual** untuk memasukkan tanggal, daftar barang (nama, harga, kategori), dan menyimpannya langsung melalui `POST /api/transactions` tanpa melewati proses AI.
+* **FR-24 (Kategorisasi Pengeluaran):**
+  * Setiap item memiliki atribut `category` yang mengacu pada daftar kategori standar: `Makanan & Minuman`, `Kebutuhan Pokok`, `Transportasi`, `Kesehatan & Perawatan`, `Tagihan & Utilitas`, `Hiburan & Belanja`, dan `Lainnya`.
+  * Gemini API menyarankan `category` untuk setiap item saat ekstraksi struk; pengguna dapat mengubahnya di tabel *preview* maupun saat mengedit item di Riwayat.
+  * Ringkasan bulanan menambahkan agregasi pengeluaran per kategori (`category_breakdown`).
+* **FR-25 (Ekspor Laporan CSV):** Menyediakan endpoint `GET /api/transactions/export` (dengan filter opsional `month` dan `year`) yang menghasilkan file `.csv` siap unduh berisi kolom: Tanggal, Nama Barang, Kategori, dan Harga.
+* **FR-26 (Arsip Foto Struk Opsional):** Saat menyimpan transaksi hasil ekstraksi struk, backend menyimpan versi terkompresi foto struk di direktori lokal terkelola (`uploads/receipts/`) dan menyimpan referensi path-nya di tabel `transactions` agar dapat dilihat kembali melalui endpoint aman.
 
-```json
-{
-  "date": "2026-11-24",
-  "items": [
-    {
-      "name": "Indomie Goreng",
-      "price": 3500
-    },
-    {
-      "name": "Aqua 600ml",
-      "price": 4000
-    },
-    {
-      "name": "Roti Coklat",
-      "price": 8500
-    }
-  ]
-}
-```
+### C. Gelombang 2 — Modernisasi Frontend (v1.5)
+* **FR-27 (Migrasi UI ke React + Vite + Tailwind CSS):**
+  * Membangun ulang lapisan frontend menggunakan **React**, **Vite**, dan **Tailwind CSS** di direktori `frontend-v2/` terlebih dahulu hingga seluruh fitur v1.1 teruji lengkap.
+  * Menggunakan komponen UI modular, state management bersih, dan library grafik modern (misal Recharts atau Chart.js) yang tetap mengonsumsi data agregasi dari backend FastAPI.
+  * Setelah stabil, hasil *production build* (`dist/`) disajikan langsung oleh FastAPI atau reverse proxy.
 
-### C. Data Validation & Preview
-* **FR-09:** Seluruh hasil JSON dari Gemini API wajib divalidasi oleh **Pydantic** di backend sebelum dikirim ke frontend, serta divalidasi ulang oleh Pydantic sebelum disimpan ke SQLite.
-* **FR-10:** Aturan validasi data (ketika menyimpan ke database):
-  * `date`: wajib ada dan memenuhi format valid `YYYY-MM-DD`.
-  * `items`: daftar barang minimal berisi 1 item.
-  * `name`: bertipe string, tidak kosong setelah trim spasi (*whitespace*).
-  * `price`: bertipe numerik (integer), tidak bernilai negatif (minimal `0`).
-* **FR-11:** Frontend menampilkan hasil ekstraksi dalam bentuk tabel interaktif (*editable table*) berisi input tanggal transaksi serta baris daftar barang (nama barang dan harga).
-* **FR-12:** Pengguna dapat mengubah nama barang, mengubah harga, mengubah tanggal transaksi, menghapus baris item yang salah baca, atau menambah baris item yang terlewat oleh AI.
-* **FR-13:** Data **tidak boleh** tersimpan otomatis setelah ekstraksi selesai; penyimpanan ke database hanya terjadi setelah pengguna menekan tombol **Konfirmasi & Simpan**.
-
-### D. Expense History
-* **FR-14:** Sistem menampilkan daftar seluruh catatan barang dari transaksi yang telah tersimpan, memuat kolom: **Tanggal Transaksi**, **Nama Barang**, dan **Harga**, diurutkan default dari tanggal terbaru.
-* **FR-15:** Sistem menyediakan kotak pencarian (*search bar*) yang memfilter riwayat berdasarkan kecocokan sebagian (*case-insensitive substring*) pada **nama barang**.
-* **FR-16:** Sistem menyediakan filter periode berdasarkan **Bulan** (Januari–Desember) dan **Tahun**.
-* **FR-17:** Pengguna dapat mengedit detail item/transaksi (nama barang, harga, tanggal) maupun menghapus item atau keseluruhan transaksi dengan dialog konfirmasi penghapusan.
-
-### E. Monthly Expense Summary
-* **FR-18:** Pengguna dapat memilih periode **Bulan** dan **Tahun** (default: bulan dan tahun berjalan).
-* **FR-19:** Backend Python/SQL menghitung dan mengembalikan metrik berikut secara deterministik (bukan menggunakan LLM):
-  * **Total Pengeluaran Bulanan** (penjumlahan seluruh harga barang pada periode terpilih).
-  * **Jumlah Barang Tercatat** (total baris item pada periode terpilih).
-  * **Daftar Pengeluaran per Tanggal** (agregasi subtotal harian untuk setiap tanggal yang memiliki transaksi pada periode terpilih).
-* **FR-20:** Frontend menampilkan ringkasan dalam bentuk kartu metrik (*summary cards*), daftar pengeluaran per tanggal, serta satu **grafik sederhana** (misalnya *bar chart* pengeluaran per tanggal dalam bulan terpilih menggunakan Canvas/SVG sederhana atau library ringan seperti Chart.js via CDN).
+### D. Gelombang 3 — Deployment & Ekspansi Skala Penuh (v1.2 – v2.0)
+* **FR-28 (Containerization & CI):** Menyediakan `Dockerfile`, `docker-compose.yml` (dengan *persistent volume* untuk database dan arsip gambar), serta GitHub Actions workflow untuk menjalankan `pytest` otomatis pada setiap *push*/*pull request*.
+* **FR-29 (Autentikasi & Multi-User):** Menyediakan registrasi dan login pengguna (`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`) menggunakan password ter-hash (`bcrypt`/`argon2`) dan token JWT/cookie aman. Seluruh query transaksi, ringkasan, dan arsip struk wajib terisolasi berdasarkan `user_id`.
+* **FR-30 (Abstraksi Database & PostgreSQL):** Memisahkan lapisan akses data agar mendukung **SQLite** untuk pengembangan lokal dan **PostgreSQL** untuk deployment produksi melalui konfigurasi `DATABASE_URL`.
+* **FR-31 (Pemasukan & Budgeting):**
+  * Mendukung pencatatan pemasukan (*income*) terpisah dari pengeluaran agar pengguna dapat melihat arus kas bulanan (*total income*, *total expense*, *net balance*).
+  * Pengguna dapat menetapkan batas anggaran bulanan per kategori (`budgets`) dan melihat persentase pemakaian serta indikator peringatan saat mendekati/melewati batas.
+* **FR-32 (AI Financial Insights Terpisah):**
+  * Menyediakan modul layanan terpisah (`insights_service.py`) untuk menghasilkan ringkasan analisis kebiasaan belanja bulanan dan saran penghematan.
+  * **Aturan Ketat:** Input ke LLM **hanya** berupa ringkasan angka agregat yang sudah dihitung oleh backend Python/SQL (total per kategori, perbandingan bulan lalu, status anggaran)—LLM dilarang mengakses baris transaksi mentah secara bebas atau menghitung angka sendiri.
 
 ---
 
@@ -146,390 +124,269 @@ Aplikasi MVP ini dirancang untuk penggunaan tunggal (personal/lokal) dengan tiga
 
 | ID | Kategori | Kebutuhan Spesifik | Kriteria Pengukuran |
 | :--- | :--- | :--- | :--- |
-| **NFR-01** | **Usability** | Antarmuka bersih, responsif untuk layar desktop/mobile, dengan alur navigasi maksimal 3 halaman/tab utama (Upload & Preview, Riwayat, Ringkasan Bulanan). | Pengguna baru dapat menyelesaikan alur upload hingga simpan tanpa panduan tambahan. |
-| **NFR-02** | **Performance** | Endpoint lokal (riwayat, CRUD, summary) merespons cepat; proses ekstraksi AI memiliki umpan balik status yang informatif. | Operasi CRUD & Summary di bawah 300 ms; proses ekstraksi AI memiliki timeout backend 30 detik dengan indikator loading aktif. |
-| **NFR-03** | **Reliability** | Sistem tidak crash ketika Gemini API gagal, timeout, atau mengembalikan format tak terduga. | Seluruh error pihak ketiga ditangkap (*caught*) dan dikembalikan sebagai pesan error JSON terstruktur yang ramah pengguna. |
-| **NFR-04** | **Data Integrity** | Tidak ada data korup, harga negatif, nama kosong, atau item yatim (*orphan record*) di database. | Validasi Pydantic aktif di setiap endpoint tulis; SQLite mengaktifkan `PRAGMA foreign_keys = ON` dan constraint `CHECK`. |
-| **NFR-05** | **Security** | Kredensial Gemini API Key disimpan exclusively di file `.env` pada sisi server dan masuk daftar `.gitignore`. | Zero hardcoded API key di kode backend, kode frontend (HTML/JS), maupun riwayat commit Git. File upload divalidasi konten/MIME-nya, bukan sekadar ekstensi nama file. |
-| **NFR-06** | **Maintainability** | Struktur kode modular dengan pemisahan layer (routes, services, schemas, database, prompts). | Perubahan pada prompt AI atau tampilan frontend tidak memerlukan modifikasi pada skema database atau kalkulasi summary. |
+| **NFR-01** | **Usability** | Antarmuka responsif *mobile-first* dengan alur navigasi jelas dan umpan balik visual instan. | Seluruh alur utama dapat digunakan nyaman pada layar lebar 360px (mobile) hingga 1440px (desktop). |
+| **NFR-02** | **Performance & Resilience** | Kompresi gambar otomatis menurunkan ukuran file unggahan; panggilan AI tahan terhadap gangguan sementara. | Waktu respons ekstraksi rata-rata < 8 detik; error sementara `429`/`503` ditangani otomatis hingga 3 kali percobaan. |
+| **NFR-03** | **Security & Privacy** | Kredensial tersimpan di `.env`; password ter-hash; akses file arsip struk tervalidasi kepemilikan user; anti *path traversal*. | Zero secret di Git/frontend; pengguna A tidak pernah bisa mengakses data atau foto struk milik pengguna B. |
+| **NFR-04** | **Data Integrity** | Validasi Pydantic berlapis dan constraint relasional aktif pada SQLite maupun PostgreSQL. | Tidak ada data korup, harga negatif, kategori di luar enum, atau *orphan record*. |
+| **NFR-05** | **Maintainability** | Pemisahan tegas antara AI Extraction, AI Insights, Business Logic, Database Layer, dan Frontend. | Perubahan framework UI atau migrasi SQLite ke PostgreSQL tidak mengubah logika bisnis inti maupun prompt ekstraksi. |
 
 ---
 
-## 8. MVP Scope & Out of Scope
+## 8. Scope & Phasing Matrix
 
-| In-Scope (MVP v1.0) | Out of Scope (Tidak Dibangun di MVP) | Alasan Pengecualian |
-| :--- | :--- | :--- |
-| Pencatatan pengeluaran pribadi (single-user lokal) | Multi-user, registrasi, login, dan autentikasi kompleks | Menambah kompleksitas sesi, JWT, dan keamanan password di luar fokus inti AI Engineering. |
-| Upload foto struk (JPG, JPEG, PNG) | Integrasi rekening bank / e-wallet & sinkronisasi otomatis | Memerlukan API perbankan/agregator berbayar dan kepatuhan regulasi keamanan finansial. |
-| Ekstraksi 3 field: nama barang, harga, tanggal | Ekstraksi nama toko, alamat, metode bayar, atau pajak terpisah | Tidak dibutuhkan oleh requirement utama; menyederhanakan prompt & akurasi ekstraksi. |
-| Validasi Pydantic + Preview & Edit manual | Kategorisasi pengeluaran otomatis oleh AI | Memerlukan taksonomi kategori tambahan dan memperbesar ruang kesalahan klasifikasi di MVP. |
-| Riwayat transaksi (list, search, filter bulan/tahun, edit, delete) | Pencatatan pemasukan (*income tracking*) & manajemen saldo | Fokus MVP adalah pemantauan pengeluaran berbasis struk belanja. |
-| Ringkasan bulanan & grafik sederhana (kalkulasi backend) | Rekomendasi finansial berbasis AI & prediksi pengeluaran | Membutuhkan histori data jangka panjang dan menambah ruang lingkup prompt analitik. |
-| Penyimpanan lokal SQLite | Integrasi Google Sheets / ekspor cloud eksternal | SQLite sudah mencukupi kebutuhan CRUD & agregasi tanpa ketergantungan OAuth tambahan. |
+Untuk menjaga fokus pengerjaan dan mencegah perubahan serentak yang berisiko, fitur dibagi ke dalam fase yang terkunci:
+
+| Fitur / Komponen | v1.0.0 (Selesai) | Gelombang 1 (v1.0.1 – v1.1) | Gelombang 2 (v1.5) | Gelombang 3 (v1.2 – v2.0) | Status / Catatan |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| Ekstraksi struk dasar (`date`, `name`, `price`) | ✅ | ✅ | ✅ | ✅ | Sudah aktif |
+| Kompresi gambar + Auto-retry & Fallback Model | ❌ | ✅ | ✅ | ✅ | Prioritas pertama |
+| Input pengeluaran manual & Kategori item | ❌ | ✅ | ✅ | ✅ | Target v1.1 |
+| Ekspor CSV & Arsip foto struk lokal | ❌ | ✅ | ✅ | ✅ | Target v1.1 |
+| Migrasi Frontend ke React + Vite + Tailwind CSS | ❌ | ❌ | ✅ | ✅ | Dikerjakan setelah API v1.1 stabil |
+| Docker & GitHub Actions CI | ❌ | ❌ | ❌ | ✅ | Target v1.2 |
+| Login Multi-User, PostgreSQL, Budgeting & AI Insights | ❌ | ❌ | ❌ | ✅ | Target v2.0 |
+| Ekstraksi nama toko, kasir, metode pembayaran | ❌ | ❌ | ❌ | ❌ | **Tetap di luar ruang lingkup** |
+| Integrasi langsung rekening bank / e-wallet | ❌ | ❌ | ❌ | ❌ | **Tetap di luar ruang lingkup** |
 
 ---
 
-## 9. User Flow
+## 9. User Flow (Target v1.1 – v2.0)
 
 ```mermaid
 flowchart TD
-    A[Pengguna Membuka ExTra] --> B{Pilih Menu}
+    A[Pengguna Membuka ExTra] --> B{Sudah Login? - v2.0}
+    B -->|Belum| AUTH[Halaman Login / Register]
+    AUTH --> C[Dashboard Utama]
+    B -->|Sudah / Mode Lokal v1.1| C
 
-    B -->|Upload Struk| C[Pilih Foto Struk JPG/JPEG/PNG]
-    C --> D{Validasi File Frontend & Backend}
-    D -->|Tidak Valid / > 5MB| E[Tampilkan Pesan Error Upload]
-    E --> C
-    D -->|Valid| F[Tampilkan Loading: Menganalisis Struk...]
-    F --> G[Backend Kirim Gambar ke Gemini Flash API]
+    C --> D{Pilih Aksi}
+    D -->|Upload Struk| E[Pilih Foto Struk JPG/PNG]
+    E --> F[Validasi File & Kompresi Gambar]
+    F --> G[Gemini Vision + Auto-Retry & Fallback]
+    G --> H{Valid Struk?}
+    H -->|Tidak| ERR[Tampilkan Pesan Error Jelas]
+    H -->|Ya| PREV[Tabel Preview Editable: Tanggal, Item, Harga, Kategori]
+    PREV --> SAVE[Konfirmasi & Simpan ke Database + Arsip Foto]
 
-    G --> H{Ekstraksi Berhasil & Merupakan Struk?}
-    H -->|Gagal API / Bukan Struk / Buram Total| I[Tampilkan Pesan Error & Opsi Unggah Ulang]
-    I --> C
-    H -->|Berhasil| J[Validasi Skema via Pydantic]
-    J --> K[Tampilkan Halaman Preview Tabel Editable]
+    D -->|Input Manual| MAN[Form Input Manual: Tanggal, Item, Harga, Kategori]
+    MAN --> SAVE
 
-    K --> L[Pengguna Periksa & Koreksi Tanggal / Nama / Harga]
-    L --> M{Klik Konfirmasi & Simpan?}
-    M -->|Batal| C
-    M -->|Simpan| N{Validasi Akhir Pydantic}
-    N -->|Ada Field Kosong / Invalid| O[Sorot Field Bermasalah di UI]
-    O --> L
-    N -->|Valid| P[Simpan ke SQLite: transactions & transaction_items]
-    P --> Q[Tampilkan Notifikasi Sukses & Arahkan ke Riwayat/Ringkasan]
-
-    B -->|Riwayat Transaksi| R[Tampilkan Daftar Item Tersimpan]
-    R --> S[Cari Nama Barang / Filter Bulan & Tahun / Edit / Hapus]
-
-    B -->|Ringkasan Bulanan| T[Pilih Bulan & Tahun]
-    T --> U[Backend Hitung Total, Jumlah Item & Breakdown Tanggal]
-    U --> V[Tampilkan Kartu Metrik, Daftar Harian & Grafik]
+    D -->|Riwayat Transaksi| HIST[Filter Bulan/Tahun/Kategori, Search, Edit, Hapus, Lihat Struk, Export CSV]
+    D -->|Ringkasan & Budget| SUM[Metrik Bulanan, Grafik Kategori & Harian, Progress Budget, AI Insights]
 ```
 
 ---
 
 ## 10. AI Workflow
 
-### Pipeline Pemrosesan AI
+ExTra memisahkan penggunaan AI menjadi **dua jalur terisolasi** agar tidak terjadi pencampuran antara tugas ekstraksi dokumen dan tugas analisis finansial:
 
+### Jalur 1: Multimodal Receipt Extraction (v1.0.1 – v1.1)
 ```mermaid
 flowchart LR
-    IMG[Gambar Struk<br/>Bytes + MIME Type] --> PREP[Pre-check File<br/>Format & Ukuran]
-    PREP --> GEMINI[Gemini Flash API<br/>Multimodal Vision + System Prompt<br/>+ JSON Schema]
-    GEMINI --> RAW[Raw JSON Response]
-    RAW --> PARSE[JSON Parsing &<br/>Pydantic Extraction Validator]
-    PARSE -->|Valid| PREVIEW[Payload Preview ke Frontend<br/>+ Warning jika Tanggal Null]
-    PARSE -->|Invalid / Bukan Struk| ERR[Mapped Domain Error<br/>HTTP 422 / 502]
+    RAW_IMG[Foto Struk Mentah] --> VAL[Validasi MIME & Ukuran]
+    VAL --> COMP[Kompresi Pillow<br/>Max Width 1280px]
+    COMP --> RETRY[Gemini Flash API<br/>+ Exponential Backoff & Fallback]
+    RETRY --> SCHEMA[Pydantic Validation<br/>date, name, price, category]
+    SCHEMA --> UI[Preview Table<br/>Human-in-the-Loop]
 ```
+* **Input:** Gambar struk terkompresi (`bytes` + `image/jpeg` atau `image/png`).
+* **Output JSON:** `is_receipt`, `date` (`YYYY-MM-DD` atau `null`), daftar `items` berisi `name`, `price` (integer), dan `category` (dari daftar kategori tetap), serta `error_reason`.
+* **Larangan:** Tetap dilarang mengekstrak nama toko/alamat/metode bayar, dilarang mengarang item/tanggal, dan dilarang menulis langsung ke database.
 
-### 5 Pilar Implementasi AI
-
-1. **Multimodal AI (Vision):**
-   * Menggunakan SDK resmi Python `google-genai` dengan model kelas **Google Gemini Flash** untuk keseimbangan kecepatan respons, biaya rendah, dan akurasi OCR/vision pada struk belanja.
-   * Gambar dikirim sebagai *inline image bytes* bersama MIME type (`image/jpeg` atau `image/png`) tanpa menyimpan file gambar permanen ke disk.
-
-2. **Prompt Engineering (Ketat & Deterministik):**
-   * Prompt dipisahkan dalam modul khusus (`prompts.py`).
-   * **Aturan wajib dalam System Instruction:**
-     * Periksa terlebih dahulu apakah gambar merupakan struk belanja yang dapat dibaca. Jika bukan struk atau terlalu buram, tandai `is_receipt: false`.
-     * Ekstrak **hanya** tanggal transaksi (`YYYY-MM-DD`) dan daftar item (`name`, `price`).
-     * Abaikan nama toko, alamat, nomor struk, kasir, subtotal, total, tunai, kembalian, dan metode pembayaran.
-     * Konversi seluruh harga ke angka integer murni tanpa simbol mata uang atau pemisah ribuan.
-     * Jika tanggal tidak tertera atau tidak terbaca pada struk, kembalikan `"date": null`.
-     * Dilarang mengarang barang yang tidak terlihat pada gambar.
-
-3. **Structured Output:**
-   * Mengaktifkan mode output terstruktur pada Gemini API (`response_mime_type="application/json"` disertai `response_schema`) agar respons selalu mengikuti struktur JSON yang diharapkan.
-
-4. **Data Validation (Dua Tahap dengan Pydantic):**
-   * **Skema Ekstraksi (`ReceiptExtractionResult`):** Memvalidasi hasil mentah dari Gemini. Mengizinkan `date` bernilai `null` pada tahap preview agar pengguna dapat mengisi tanggal secara manual.
-   * **Skema Penyimpanan (`TransactionCreateRequest`):** Memvalidasi payload ketika pengguna menekan tombol Konfirmasi & Simpan. Mewajibkan `date` berformat `YYYY-MM-DD` valid, `items` minimal 1 elemen, `name` tidak kosong, dan `price` integer minimal `0`.
-
-5. **Error Handling & Human-in-the-Loop:**
-   * Setiap respons ekstraksi yang memiliki `date: null` menyertakan array `warnings` agar frontend menyorot kolom yang perlu perhatian pengguna.
-   * Tidak ada jalur eksekusi yang menghubungkan langsung output Gemini API ke fungsi `INSERT` SQLite.
+### Jalur 2: AI Financial Insights (v2.0 — Terpisah)
+* **Input:** Hanya payload statistik teragregasi hasil kalkulasi backend Python/SQL (contoh: total pengeluaran bulan ini vs bulan lalu, persentase pemakaian budget per kategori, 3 kategori terbesar).
+* **Output:** Ringkasan naratif singkat dalam Bahasa Indonesia yang menyoroti tren pengeluaran dan saran penghematan praktis.
+* **Larangan:** LLM **tidak pernah** melakukan penjumlahan transaksi mentah; seluruh angka yang dirujuk berasal dari hasil perhitungan deterministik backend.
 
 ---
 
 ## 11. System Architecture
 
-### Technology Stack
+### Evolution of Technology Stack
+* **Backend:** Python 3.10+, FastAPI, Uvicorn, Pydantic v2, `Pillow` (kompresi gambar), `google-genai` (Gemini SDK).
+* **Database:** SQLite (v1.0 – v1.5) dengan lapisan abstraksi data yang siap bermigrasi ke PostgreSQL (`DATABASE_URL`) pada v2.0.
+* **Frontend:**
+  * *Gelombang 1 (v1.0.1 – v1.1):* HTML5, CSS3, Vanilla JS (dipertahankan sementara untuk memverifikasi API baru secara terisolasi).
+  * *Gelombang 2 & 3 (v1.5 – v2.0):* **React + Vite + Tailwind CSS**.
+* **Infrastructure & DevOps (v1.2+):** Docker, Docker Compose, GitHub Actions CI (`pytest` + frontend build check).
 
-| Komponen | Teknologi | Peran dalam Sistem |
-| :--- | :--- | :--- |
-| **Bahasa Pemrograman** | Python 3.10+ | Bahasa utama backend, integrasi AI, dan kalkulasi data |
-| **AI Model** | Google Gemini Flash API (`google-genai`) | Ekstraksi multimodal vision dari foto struk ke JSON |
-| **Backend Framework** | FastAPI + Uvicorn | REST API server, validasi request, dan menyajikan static frontend |
-| **AI & Data Validation** | Pydantic v2 | Validasi skema output AI dan payload API |
-| **Database** | SQLite (`sqlite3`) | Penyimpanan relasional lokal tanpa server database terpisah |
-| **Frontend** | HTML5, CSS3, Vanilla JavaScript | Antarmuka pengguna, upload file, tabel preview editable, dan grafik |
-| **Manajemen Konfigurasi** | `python-dotenv` | Memuat `GEMINI_API_KEY` dari file `.env` |
-| **Version Control** | Git & GitHub | Pelacakan versi kode dan manajemen milestone |
-| **Development Environment** | Google Antigravity | IDE utama untuk pengembangan modular bertahap |
-
-### Diagram Arsitektur Sistem
-
-```mermaid
-flowchart TB
-    subgraph FE[Frontend Layer - HTML / CSS / Vanilla JS]
-        UI_UP[Upload & Loading UI]
-        UI_PREV[Preview & Edit Table UI]
-        UI_HIST[Expense History & Filter UI]
-        UI_SUM[Monthly Summary & Chart UI]
-    end
-
-    subgraph BE[Backend Layer - FastAPI / Python]
-        API_REC[Receipt Router<br/>File Validation & Orchestration]
-        API_TRX[Transaction Router<br/>CRUD & Search/Filter]
-        API_SUM[Summary Router<br/>Python/SQL Aggregator]
-        SCHEMA[Pydantic Schemas<br/>Extraction & Persistence Validation]
-    end
-
-    subgraph AI[AI Processing Layer]
-        PROMPT[Prompt & Schema Builder]
-        GEMINI_CLIENT[Gemini Vision Service<br/>google-genai SDK]
-        ERR_MAP[AI Error & Fallback Handler]
-    end
-
-    subgraph DB[Database Layer - SQLite]
-        TBL_TRX[(transactions)]
-        TBL_ITEMS[(transaction_items)]
-    end
-
-    EXT[(Google Gemini Flash API)]
-
-    UI_UP -->|POST /api/receipts/extract| API_REC
-    API_REC --> GEMINI_CLIENT
-    PROMPT --> GEMINI_CLIENT
-    GEMINI_CLIENT <-->|HTTPS + API Key dari .env| EXT
-    GEMINI_CLIENT --> ERR_MAP
-    ERR_MAP --> SCHEMA
-    SCHEMA -->|JSON Preview + Warnings| UI_PREV
-
-    UI_PREV -->|POST /api/transactions| API_TRX
-    UI_HIST <-->|GET / PUT / DELETE| API_TRX
-    API_TRX --> SCHEMA
-    API_TRX <--> TBL_TRX
-    API_TRX <--> TBL_ITEMS
-
-    UI_SUM <-->|GET /api/summary/monthly| API_SUM
-    API_SUM <--> TBL_TRX
-    API_SUM <--> TBL_ITEMS
-```
-
-### Struktur Direktori Modular
-
+### Target Struktur Direktori
 ```text
-extra-expense-tracker/
-├── .env.example                 # Template variabel environment (GEMINI_API_KEY)
-├── .gitignore                   # Mengabaikan .env, __pycache__, *.db, venv/
-├── requirements.txt             # Dependensi minimal (fastapi, uvicorn, google-genai, pydantic, python-dotenv, python-multipart, pytest)
-├── PRD.md                       # Dokumen PRD produk
+ExTra/
+├── .env                         # Lokal only (GEMINI_API_KEY, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, DATABASE_URL, JWT_SECRET)
+├── .env.example                 # Template konfigurasi environment
+├── .gitignore                   # Mengabaikan .env, venv/, *.db, uploads/, node_modules/, dist/
+├── Dockerfile                   # Image produksi (Gelombang 3)
+├── docker-compose.yml           # Orkestrasi container & persistent volume (Gelombang 3)
+├── requirements.txt
+├── PRD.md
+├── AGENTS.md
+├── README.md
+├── uploads/                     # Penyimpanan arsip foto struk terkompresi (v1.1+, diabaikan Git)
 ├── backend/
-│   ├── main.py                  # Entry point FastAPI, mount static files & routers
-│   ├── config.py                # Load & validasi konfigurasi dari .env
-│   ├── database.py              # Koneksi SQLite, PRAGMA foreign_keys, inisialisasi tabel
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
 │   ├── schemas/
-│   │   ├── receipt.py           # Skema Pydantic hasil ekstraksi AI
-│   │   ├── transaction.py       # Skema Pydantic create/update/response transaksi
-│   │   └── summary.py           # Skema Pydantic ringkasan bulanan
+│   │   ├── receipt.py
+│   │   ├── transaction.py
+│   │   ├── summary.py
+│   │   ├── auth.py              # (Gelombang 3)
+│   │   └── budget.py            # (Gelombang 3)
 │   ├── services/
-│   │   ├── ai_service.py        # Pemanggilan Gemini Vision API & error handling
-│   │   ├── prompts.py           # System instruction & prompt ekstraksi struk
-│   │   ├── transaction_service.py # Logika CRUD SQLite & filter pencarian
-│   │   └── summary_service.py   # Kalkulasi total bulanan, jumlah item, agregasi harian
+│   │   ├── image_service.py     # Kompresi & validasi gambar dengan Pillow (v1.0.1)
+│   │   ├── ai_service.py        # Gemini Vision + retry/backoff + fallback (v1.0.1)
+│   │   ├── prompts.py           # Prompt ekstraksi & prompt insights terpisah
+│   │   ├── transaction_service.py
+│   │   ├── summary_service.py
+│   │   ├── export_service.py    # Ekspor laporan CSV (v1.1)
+│   │   ├── auth_service.py      # (Gelombang 3)
+│   │   └── insights_service.py  # (Gelombang 3)
 │   └── routers/
-│       ├── receipts.py          # Endpoint ekstraksi struk
-│       ├── transactions.py      # Endpoint CRUD & riwayat transaksi
-│       └── summary.py           # Endpoint ringkasan bulanan
-├── frontend/
-│   ├── index.html               # Single-page atau multi-section UI sederhana
-│   ├── css/
-│   │   └── styles.css           # Styling bersih & responsif
-│   └── js/
-│       ├── api.js               # Wrapper fetch API terpusat
-│       ├── upload.js            # Logika upload, status loading, & tabel preview editable
-│       ├── history.js           # Logika daftar riwayat, search, filter, edit, delete
-│       └── summary.js           # Logika metrik bulanan & render grafik sederhana
+│       ├── receipts.py
+│       ├── transactions.py
+│       ├── summary.py
+│       ├── auth.py              # (Gelombang 3)
+│       └── budgets.py           # (Gelombang 3)
+├── frontend/                    # UI Vanilla v1.0–v1.1 (dipertahankan sampai migrasi selesai)
+├── frontend-v2/                 # Aplikasi React + Vite + Tailwind CSS (Gelombang 2)
 └── tests/
-    ├── test_schemas.py          # Unit test validasi Pydantic
-    ├── test_database.py         # Unit test CRUD & foreign key cascade
-    ├── test_summary.py          # Unit test akurasi perhitungan bulanan
-    └── test_api.py              # Integration test endpoint FastAPI (dengan mock AI)
 ```
 
 ---
 
 ## 12. Database Design & ERD
 
-### Entity Relationship Diagram (ERD)
+### Evolusi Skema Database
+* **v1.0.0 (Aktif):** Tabel `transactions` (`id`, `transaction_date`, `created_at`) dan `transaction_items` (`id`, `transaction_id`, `item_name`, `price`).
+* **v1.1 (Penambahan Kolom Backward-Compatible):**
+  * Menambahkan `receipt_image_path TEXT NULL` pada `transactions`.
+  * Menambahkan `category TEXT NOT NULL DEFAULT 'Lainnya'` pada `transaction_items`.
+* **v2.0 (Skema Multi-User & Budgeting):**
+  * Menambahkan tabel `users` (`id`, `email`, `password_hash`, `created_at`) dan foreign key `user_id` pada `transactions`.
+  * Menambahkan tabel `budgets` (`id`, `user_id`, `month`, `year`, `category`, `limit_amount`) dan pencatatan pemasukan (`incomes`).
 
 ```mermaid
 erDiagram
+    USERS ||--o{ TRANSACTIONS : owns
+    USERS ||--o{ BUDGETS : sets
+    USERS ||--o{ INCOMES : records
     TRANSACTIONS ||--|{ TRANSACTION_ITEMS : contains
 
+    USERS {
+        INTEGER id PK
+        TEXT email UK "NOT NULL"
+        TEXT password_hash "NOT NULL"
+        TEXT created_at "NOT NULL"
+    }
+
     TRANSACTIONS {
-        INTEGER id PK "AUTOINCREMENT"
-        TEXT transaction_date "NOT NULL, Format YYYY-MM-DD"
-        TEXT created_at "NOT NULL, Default CURRENT_TIMESTAMP"
+        INTEGER id PK
+        INTEGER user_id FK "NULL di v1.1, NOT NULL di v2.0"
+        TEXT transaction_date "NOT NULL, YYYY-MM-DD"
+        TEXT receipt_image_path "NULL, path arsip terkompresi v1.1+"
+        TEXT created_at "NOT NULL"
     }
 
     TRANSACTION_ITEMS {
-        INTEGER id PK "AUTOINCREMENT"
-        INTEGER transaction_id FK "NOT NULL, REFERENCES transactions(id) ON DELETE CASCADE"
-        TEXT item_name "NOT NULL, Non-empty string"
+        INTEGER id PK
+        INTEGER transaction_id FK "ON DELETE CASCADE"
+        TEXT item_name "NOT NULL"
+        TEXT category "NOT NULL DEFAULT 'Lainnya' (v1.1+)"
         INTEGER price "NOT NULL, CHECK(price >= 0)"
     }
+
+    BUDGETS {
+        INTEGER id PK
+        INTEGER user_id FK
+        INTEGER month "1-12"
+        INTEGER year "4 digit"
+        TEXT category "NOT NULL"
+        INTEGER limit_amount "CHECK(limit_amount >= 0)"
+    }
+
+    INCOMES {
+        INTEGER id PK
+        INTEGER user_id FK
+        TEXT income_date "YYYY-MM-DD"
+        TEXT source_name "NOT NULL"
+        INTEGER amount "CHECK(amount >= 0)"
+    }
 ```
-
-### Spesifikasi Tabel Database
-
-#### 1. Tabel `transactions`
-
-| Nama Kolom | Tipe Data SQLite | Constraint | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Identitas unik transaksi |
-| `transaction_date` | `TEXT` | `NOT NULL` | Tanggal transaksi dalam format ISO `YYYY-MM-DD` |
-| `created_at` | `TEXT` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Waktu pencatatan disimpan ke database |
-
-#### 2. Tabel `transaction_items`
-
-| Nama Kolom | Tipe Data SQLite | Constraint | Deskripsi |
-| :--- | :--- | :--- | :--- |
-| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` | Identitas unik item barang |
-| `transaction_id` | `INTEGER` | `NOT NULL`, `FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE` | Referensi ke transaksi induk |
-| `item_name` | `TEXT` | `NOT NULL`, `CHECK (length(trim(item_name)) > 0)` | Nama barang yang dibeli |
-| `price` | `INTEGER` | `NOT NULL`, `CHECK (price >= 0)` | Harga barang dalam bilangan bulat (IDR) |
-
-### Aturan Relasi & Integritas
-* **Kardinalitas:** **One-to-Many** (`transactions` -> `transaction_items`).
-* **Foreign Key Enforcement:** Executing `PRAGMA foreign_keys = ON;` on every database connection.
-* **Cascade Delete:** Menghapus transaksi utama otomatis menghapus seluruh item barang terkait.
-* **Orphan Cleanup:** Menghapus item terakhir dalam transaksi otomatis membersihkan header `transactions`.
 
 ---
 
 ## 13. API Requirements
 
-| Method | Endpoint | Deskripsi | Sumber Data / Aksi |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/receipts/extract` | Mengunggah gambar struk dan mengekstrak item via Gemini Vision (**tidak menyimpan ke DB**) | Multipart file -> Gemini API -> Pydantic |
-| `POST` | `/api/transactions` | Menyimpan transaksi & daftar barang yang telah dikonfirmasi pengguna | JSON -> Pydantic -> SQLite |
-| `GET` | `/api/transactions` | Mengambil riwayat pengeluaran dengan filter opsional `month`, `year`, dan `search` | SQLite Query |
-| `PUT` | `/api/items/{item_id}` | Mengedit nama barang, harga, dan/atau tanggal transaksi pada item tersimpan | JSON -> Pydantic -> SQLite |
-| `DELETE` | `/api/items/{item_id}` | Menghapus satu item pengeluaran | SQLite Delete |
-| `DELETE` | `/api/transactions/{transaction_id}` | Menghapus keseluruhan transaksi beserta seluruh item-nya | SQLite Cascade Delete |
-| `GET` | `/api/summary/monthly` | Mengambil ringkasan bulanan (`month`, `year`): total pengeluaran, jumlah barang, breakdown harian | SQLite + Python Calculation |
+### Endpoint Baseline v1.0.0 (Sudah Aktif)
+* `GET /health`
+* `POST /api/receipts/extract`
+* `POST /api/transactions`
+* `GET /api/transactions`
+* `PUT /api/items/{item_id}`
+* `DELETE /api/items/{item_id}`
+* `DELETE /api/transactions/{transaction_id}`
+* `GET /api/summary/monthly`
 
-### Payload Samples
+### Tambahan Endpoint Gelombang 1 (v1.1)
+| Method | Endpoint | Deskripsi |
+| :--- | :--- | :--- |
+| `POST` | `/api/receipts/extract` *(update)* | Mendukung kompresi otomatis, *retry/fallback*, dan mengembalikan `category` pada tiap item serta `temp_image_token` jika pengguna ingin mengarsipkan foto struk saat simpan. |
+| `GET` | `/api/transactions` *(update)* | Menambahkan filter opsional `category` selain `month`, `year`, dan `search`. |
+| `GET` | `/api/transactions/export` | Mengunduh data pengeluaran terfilter (`month`, `year`, `category`) dalam format `text/csv`. |
+| `GET` | `/api/transactions/{transaction_id}/receipt` | Mengambil file gambar struk yang diarsipkan untuk transaksi tertentu (validasi kepemilikan & anti path traversal). |
+| `GET` | `/api/summary/monthly` *(update)* | Menambahkan `category_breakdown` (`category`, `total`, `item_count`) di samping `daily_breakdown`. |
 
-#### 1. `POST /api/receipts/extract` Response (200 OK)
-```json
-{
-  "status": "success",
-  "data": {
-    "date": "2026-11-24",
-    "items": [
-      { "name": "Indomie Goreng", "price": 3500 },
-      { "name": "Aqua 600ml", "price": 4000 },
-      { "name": "Roti Coklat", "price": 8500 }
-    ]
-  },
-  "warnings": []
-}
-```
-
-#### 2. `POST /api/transactions` Request Body
-```json
-{
-  "date": "2026-11-24",
-  "items": [
-    { "name": "Indomie Goreng", "price": 3500 },
-    { "name": "Aqua 600ml", "price": 4000 }
-  ]
-}
-```
-
-#### 3. `GET /api/summary/monthly?month=11&year=2026` Response (200 OK)
-```json
-{
-  "status": "success",
-  "month": 11,
-  "year": 2026,
-  "total_expense": 16000,
-  "total_items": 3,
-  "daily_breakdown": [
-    {
-      "date": "2026-11-24",
-      "total": 16000,
-      "item_count": 3
-    }
-  ]
-}
-```
+### Tambahan Endpoint Gelombang 3 (v2.0)
+* `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+* `GET /api/budgets`, `PUT /api/budgets`
+* `POST /api/incomes`, `GET /api/incomes`, `DELETE /api/incomes/{income_id}`
+* `GET /api/insights/monthly`
 
 ---
 
 ## 14. Error Handling & Edge Cases
 
-| Skenario / Edge Case | Layer Penanganan | Kode HTTP & Error Code | Perilaku Sistem & Tampilan UI |
-| :--- | :--- | :--- | :--- |
-| **Format file bukan JPG/JPEG/PNG** | Frontend + Backend | `400` / `INVALID_FILE_TYPE` | Tolak file sebelum dikirim ke Gemini API; tampilkan pesan format yang didukung. |
-| **Ukuran file melebihi 5 MB** | Frontend + Backend | `413` / `FILE_TOO_LARGE` | Hentikan upload dan minta pengguna memilih gambar berukuran maksimal 5 MB. |
-| **Gambar bukan struk belanja** | AI Layer (`is_receipt: false`) | `422` / `NOT_A_RECEIPT` | Tampilkan pesan bahwa gambar bukan struk belanja; jangan buka tabel preview kosong. |
-| **Gambar sangat buram / gelap** | AI Layer | `422` / `UNREADABLE_RECEIPT` | Tampilkan pesan agar pengguna memfoto ulang struk dengan pencahayaan lebih baik. |
-| **Tanggal transaksi tidak terbaca** | AI Layer + Preview UI | `200` (`date: null` + `warnings`) | Buka tabel preview, sorot input tanggal berwarna merah agar diisi manual pengguna. |
-| **Harga ambigu / diskon** | AI Prompt + Preview UI | `200` (hasil terbaik AI) | Normalisasi ke integer; pengguna diberi kontrol penuh di tabel preview untuk koreksi. |
-| **AI JSON Parsing Error** | AI Layer + Backend | `502` / `AI_PARSE_ERROR` | Log error internal; tampilkan pesan ramah agar pengguna mencoba ekstraksi ulang. |
-| **Gemini API Timeout / 429** | AI Layer | `503` / `429` / `AI_SERVICE_UNAVAILABLE` | Hentikan loading, tampilkan pesan gangguan sementara beserta tombol coba lagi. |
-| **API Key Hilang / Invalid** | Backend Startup | `500` / `CONFIGURATION_ERROR` | Catat error di log server; tampilkan pesan kesalahan konfigurasi generik di UI. |
-| **Simpan Data Invalid** | Frontend + Pydantic | `422` / `VALIDATION_ERROR` | Cegah penyimpanan ke SQLite; tampilkan pesan validasi di kolom bermasalah. |
-| **Bulan Tanpa Transaksi** | Backend + Frontend | `200` (`total_expense: 0`) | Tampilkan *empty state* informatif alih-alih grafik rusak atau error. |
+* **Semua Penanganan Error v1.0.0 Tetap Berlaku:** Validasi tipe & ukuran file (`400`, `413`), gambar non-struk (`422 NOT_A_RECEIPT`), struk buram (`422 UNREADABLE_RECEIPT`), tanggal tidak terbaca (`date: null` + `warnings`), dan format JSON rusak (`502 AI_PARSE_ERROR`).
+* **Penanganan Tambahan v1.0.1 – v2.0:**
+  * **Transient AI Error (`429` / `503`):** Sistem melakukan *retry* otomatis hingga 3 kali dengan jeda eksponensial (misal 1s, 2s, 4s) dan mencoba `GEMINI_FALLBACK_MODEL` sebelum mengembalikan `503 AI_SERVICE_UNAVAILABLE`.
+  * **Kategori Tak Dikenal dari AI:** Jika AI mengembalikan string kategori di luar daftar yang diizinkan, validator Pydantic menormalisasinya otomatis menjadi `"Lainnya"` agar proses ekstraksi tidak gagal.
+  * **Akses Arsip Gambar Tidak Sah:** Permintaan ke endpoint file struk dengan ID tidak ada atau milik user lain ditolak dengan `404`/`403` tanpa membocorkan struktur direktori server.
 
 ---
 
-## 15. Acceptance Criteria
+## 15. Acceptance Criteria (Expansion Milestones)
 
-* **AC-01 (Receipt Upload):** Mengunggah file `.jpg`, `.jpeg`, dan `.png` berukuran maksimal 5 MB memicu ekstraksi dengan loading aktif; file non-gambar ditolak di awal.
-* **AC-02 (AI Extraction Scope):** Output ekstraksi struk hanya memuat `date` dan array `items` (`name`, `price`) tanpa field nama toko, alamat, atau metode bayar.
-* **AC-03 (Human-in-the-Loop & Validation):** Hasil ekstraksi tampil di tabel preview editable; validasi Pydantic menolak nama kosong/harga negatif; data tersimpan ke SQLite hanya via konfirmasi eksplisit pengguna.
-* **AC-04 (Expense History):** Transaksi tersimpan muncul di halaman Riwayat; pencarian nama barang dan filter bulan/tahun berfungsi presisi; edit/delete langsung memperbarui database.
-* **AC-05 (Monthly Summary Accuracy):** Total bulanan, jumlah barang, agregasi harian, dan grafik cocok 100% dengan kalkulasi Python/SQL terhadap tabel SQLite.
-* **AC-06 (Security Hygiene):** Zero `GEMINI_API_KEY` pada frontend/git; seluruh panggilan API terjadi aman di backend FastAPI.
+* **AC-07 (AI Resilience — v1.0.1):** Simulasi error `503`/`429` pada panggilan pertama/kedua berhasil pulih otomatis lewat *retry* atau *fallback model*; gambar berukuran besar dikompresi tanpa merusak validasi format.
+* **AC-08 (Productivity Features — v1.1):** Pengguna dapat mencatat pengeluaran manual tanpa foto, melihat & mengubah kategori item, mengarsipkan/melihat kembali foto struk, serta mengunduh file `.csv` yang terbuka rapi di Excel/Sheets.
+* **AC-09 (Frontend Modernization — v1.5):** Seluruh alur pengguna berjalan di aplikasi React + Vite + Tailwind CSS dengan dukungan tampilan mobile (360px) dan desktop tanpa error konsol.
+* **AC-10 (Deployment & Multi-User — v1.2 & v2.0):** Aplikasi berjalan melalui `docker compose up`, isolasi data antar-user terverifikasi lewat tes API, dan fitur budgeting serta AI Insights berjalan dengan angka yang 100% konsisten dengan database.
 
 ---
 
 ## 16. Testing Strategy
 
-| Jenis Pengujian | Cakupan Pengujian | Metode / Tools |
+* **Regression Guard:** Seluruh test suite `pytest` dari v1.0.0 (`test_schemas.py`, `test_database.py`, `test_summary.py`, `test_api.py`) wajib tetap lulus di setiap perubahan.
+* **Unit & Integration Test Baru:**
+  * Pengujian kompresi `Pillow` dan mekanisme *retry/fallback* pada `ai_service.py` menggunakan mock error `429`/`503`.
+  * Pengujian ekspor CSV, filter kategori, dan migrasi kolom SQLite agar data lama v1.0 tetap terbaca aman.
+  * Pengujian isolasi data antar-user (`user A` vs `user B`) dan validasi JWT pada Gelombang 3.
+* **Frontend Verification (Gelombang 2):** Verifikasi `npm run build` bebas error TypeScript/linting serta uji manual end-to-end seluruh fitur di viewport desktop & mobile.
+
+---
+
+## 17. Development Roadmap (Post-MVP)
+
+Pengembangan dilaksanakan dalam **3 Gelombang** yang dipecah menjadi milestone kecil:
+
+| Gelombang | Milestone | Fokus & Deliverable |
 | :--- | :--- | :--- |
-| **Unit Testing** | Validasi skema Pydantic, kalkulasi `summary_service.py`, dan CRUD + Foreign Keys `database.py`. | `pytest` menggunakan SQLite in-memory (`:memory:`). |
-| **API Integration Testing** | Seluruh endpoint FastAPI (`/api/receipts/extract`, `/api/transactions`, `/api/summary/monthly`) termasuk skenario error. | `pytest` + `FastAPI TestClient` dengan **mocking** pada `ai_service`. |
-| **AI Prompt Evaluation** | Menguji ketepatan prompt pada 10–15 sampel foto struk nyata (jelas, panjang, buram, non-struk). | Pengujian evaluasi manual & skrip verifikasi output JSON. |
-| **End-to-End Testing** | Uji alur UI lengkap: Upload -> Loading -> Preview -> Edit -> Simpan -> Riwayat -> Filter -> Ringkasan -> Grafik. | Checklist uji manual pada browser desktop & viewport mobile. |
-
----
-
-## 17. Development Roadmap
-
-| Milestone | Fokus Utama | Deliverable Utama | Definition of Done (DoD) |
-| :--- | :--- | :--- | :--- |
-| **Milestone 1** | Setup Project & Gemini API | Structure, `.env.example`, `requirements.txt`, `config.py`, Gemini connection test | FastAPI `/health` merespons `200 OK` & API Key terbaca aman. |
-| **Milestone 2** | Database Layer & Core CRUD | `database.py`, Pydantic schemas, transaction service & router | CRUD & pencarian/filter lulus unit test & integration test. |
-| **Milestone 3** | AI Processing Layer | `prompts.py`, `ai_service.py`, receipt router | `/api/receipts/extract` sukses mengekstrak JSON dari struk nyata. |
-| **Milestone 4** | Monthly Summary Backend | `summary_service.py`, summary router | `/api/summary/monthly` menghitung total & agregasi harian secara akurat. |
-| **Milestone 5** | Frontend UI Integration | Single-page UI (Upload, Preview, History, Summary, Chart) | Seluruh alur E2E berjalan lancar di browser tanpa error konsol. |
-| **Milestone 6** | Testing & Hardening | Test suite `pytest`, evaluasi edge cases, `README.md` | Seluruh AC-01 s/d AC-06 terpenuhi dan repositori siap di-push. |
-
----
-
-## 18. Future Improvements
-
-### Fase v1.1 (Peningkatan Produktivitas Data)
-* **Kategorisasi Otomatis:** Deteksi kategori belanjaan (Makanan, Transportasi, Kebutuhan Rumah) dengan opsi koreksi manual.
-* **Ekspor Data:** Fitur mengunduh laporan pengeluaran bulanan dalam format CSV/Excel.
-* **Arsip Foto Struk:** Opsional menyimpan gambar struk fisik untuk bukti transaksi.
-
-### Fase v2.0 (Analitik & Multi-User)
-* **Multi-User & Authentication:** Registrasi akun, login JWT, dan isolasi data per pengguna.
-* **Budgeting & Target Pengeluaran:** Batas anggaran bulanan dan notifikasi peringatan pengeluaran.
-* **Analitik AI Lanjutan:** Rekomendasi efisiensi pengeluaran berbasis perbandingan tren bulanan.
+| **Gelombang 1** | **M1.1 — AI Hardening (v1.0.1)** | Kompresi gambar `Pillow` (`image_service.py`), *auto-retry* exponential backoff, `GEMINI_FALLBACK_MODEL`, dan unit test ketahanan AI. |
+| **Gelombang 1** | **M1.2 — Kategori & Input Manual (v1.1a)** | Penambahan kolom `category`, update prompt & skema Pydantic, breakdown kategori di summary, serta alur input manual di backend & UI sementara. |
+| **Gelombang 1** | **M1.3 — Ekspor CSV & Arsip Struk (v1.1b)** | Endpoint ekspor `.csv`, penyimpanan arsip foto struk terkompresi (`uploads/receipts/`), dan tombol unduh/lihat struk. |
+| **Gelombang 2** | **M2.1 — Setup & Core UI React (v1.5a)** | Inisialisasi `frontend-v2/` (React + Vite + Tailwind CSS), API client terpusat, serta halaman Upload/Preview & Input Manual. |
+| **Gelombang 2** | **M2.2 — Riwayat, Summary & Cutover (v1.5b)** | Halaman Riwayat (filter kategori, ekspor CSV, lihat arsip struk), Dashboard Ringkasan + grafik modern, lalu integrasi build ke FastAPI. |
+| **Gelombang 3** | **M3.1 — Docker & CI/CD (v1.2)** | Pembuatan `Dockerfile`, `docker-compose.yml` dengan persistent volume, dan GitHub Actions CI untuk `pytest` + build frontend. |
+| **Gelombang 3** | **M3.2 — Auth & PostgreSQL (v2.0a)** | Tabel `users`, registrasi/login JWT, isolasi data per pengguna, serta dukungan `DATABASE_URL` PostgreSQL. |
+| **Gelombang 3** | **M3.3 — Budgeting & AI Insights (v2.0b)** | Pencatatan pemasukan, pengaturan anggaran per kategori, dan modul `insights_service.py` berbasis ringkasan agregat backend. |
