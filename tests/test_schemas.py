@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from backend.schemas.categories import EXPENSE_CATEGORIES
 from backend.schemas.receipt import (
     ExtractedItem,
     ReceiptExtractionResult,
@@ -10,6 +11,7 @@ from backend.schemas.receipt import (
     ReceiptPreviewData,
 )
 from backend.schemas.summary import (
+    CategoryExpenseBreakdown,
     DailyExpenseBreakdown,
     MonthlySummaryResponse,
 )
@@ -27,6 +29,30 @@ class TestTransactionItemCreate:
         item = TransactionItemCreate(name="  Indomie Goreng  ", price=0)
         assert item.name == "Indomie Goreng"
         assert item.price == 0
+        assert item.category == "Lainnya"
+
+    @pytest.mark.parametrize("official_cat", EXPENSE_CATEGORIES)
+    def test_accepts_all_seven_official_categories(self, official_cat: str) -> None:
+        item = TransactionItemCreate(
+            name="Contoh Barang",
+            price=10000,
+            category=f"  {official_cat}  ",
+        )
+        assert item.category == official_cat
+
+    @pytest.mark.parametrize(
+        "invalid_category",
+        ["", "   ", "Elektronik", "makanan & minuman", None, 123, True],
+    )
+    def test_rejects_invalid_category_in_stage2(
+        self, invalid_category: object
+    ) -> None:
+        with pytest.raises(ValidationError):
+            TransactionItemCreate(
+                name="Aqua 600ml",
+                price=4000,
+                category=invalid_category,  # type: ignore[arg-type]
+            )
 
     @pytest.mark.parametrize("invalid_name", ["", "   ", "\t\n  "])
     def test_rejects_empty_or_whitespace_only_name(self, invalid_name: str) -> None:
@@ -125,17 +151,27 @@ class TestItemUpdateRequest:
         by_date = ItemUpdateRequest(date="2026-11-25")
         assert by_date.date == "2026-11-25"
 
-        full = ItemUpdateRequest(name="Susu UHT", price=6500, date="2026-11-25")
+        full = ItemUpdateRequest(
+            name="Susu UHT",
+            price=6500,
+            date="2026-11-25",
+            category="Makanan & Minuman",
+        )
         assert full.name == "Susu UHT"
         assert full.price == 6500
         assert full.date == "2026-11-25"
+        assert full.category == "Makanan & Minuman"
+
+        only_cat = ItemUpdateRequest(category="Kesehatan & Perawatan")
+        assert only_cat.category == "Kesehatan & Perawatan"
+        assert only_cat.name is None
 
     def test_rejects_when_all_fields_empty_or_none(self) -> None:
         with pytest.raises(ValidationError):
             ItemUpdateRequest()
 
         with pytest.raises(ValidationError):
-            ItemUpdateRequest(name=None, price=None, date=None)
+            ItemUpdateRequest(name=None, price=None, date=None, category=None)
 
     def test_rejects_invalid_values_on_update(self) -> None:
         with pytest.raises(ValidationError):
@@ -152,6 +188,9 @@ class TestItemUpdateRequest:
 
         with pytest.raises(ValidationError):
             ItemUpdateRequest(date="2026-02-30")
+
+        with pytest.raises(ValidationError):
+            ItemUpdateRequest(category="Kategori Ngawur")
 
 
 class TestReceiptExtractionSchemas:
@@ -239,14 +278,43 @@ class TestReceiptExtractionSchemas:
             "status": "success",
             "data": {
                 "date": "2026-11-24",
-                "items": [{"name": "Indomie Goreng", "price": 3500}],
+                "items": [
+                    {
+                        "name": "Indomie Goreng",
+                        "price": 3500,
+                        "category": "Lainnya",
+                    }
+                ],
             },
             "warnings": [],
         }
 
+    @pytest.mark.parametrize(
+        "unknown_ai_category",
+        [None, "", "   ", "Elektronik", "Groceries", "makanan & minuman", 999],
+    )
+    def test_stage1_normalizes_unknown_ai_category_to_lainnya(
+        self, unknown_ai_category: object
+    ) -> None:
+        item = ExtractedItem(
+            name="Barang Misterius",
+            price=12000,
+            category=unknown_ai_category,  # type: ignore[arg-type]
+        )
+        assert item.category == "Lainnya"
+
+    @pytest.mark.parametrize("official_cat", EXPENSE_CATEGORIES)
+    def test_stage1_preserves_valid_ai_categories(self, official_cat: str) -> None:
+        item = ExtractedItem(
+            name="Barang Valid",
+            price=12000,
+            category=f" {official_cat} ",
+        )
+        assert item.category == official_cat
+
 
 class TestMonthlySummarySchemas:
-    """Pengujian skema Pydantic ringkasan bulanan (DailyExpenseBreakdown & MonthlySummaryResponse)."""
+    """Pengujian skema Pydantic ringkasan bulanan (Daily, Category & MonthlySummaryResponse)."""
 
     def test_valid_monthly_summary_and_zero_values(self) -> None:
         summary = MonthlySummaryResponse(
@@ -257,10 +325,14 @@ class TestMonthlySummarySchemas:
             daily_breakdown=[
                 DailyExpenseBreakdown(date="2026-11-24", total=0, item_count=1)
             ],
+            category_breakdown=[
+                CategoryExpenseBreakdown(category="Lainnya", total=0, item_count=1)
+            ],
         )
         assert summary.status == "success"
         assert summary.total_expense == 0
         assert summary.daily_breakdown[0].total == 0
+        assert summary.category_breakdown[0].category == "Lainnya"
 
     def test_rejects_invalid_breakdown_date_or_negative_numbers(self) -> None:
         with pytest.raises(ValidationError):
@@ -271,3 +343,6 @@ class TestMonthlySummarySchemas:
 
         with pytest.raises(ValidationError):
             DailyExpenseBreakdown(date="2026-11-24", total=5000.5, item_count=1)  # type: ignore[arg-type]
+
+        with pytest.raises(ValidationError):
+            CategoryExpenseBreakdown(category="Bukan Kategori", total=5000, item_count=1)

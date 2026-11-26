@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Path, Query, status
 from fastapi.responses import JSONResponse
 
+from backend.schemas.categories import ExpenseCategory
 from backend.schemas.transaction import (
     ErrorResponse,
     ItemDeleteResponse,
@@ -50,12 +51,14 @@ def create_transaction_endpoint(
 def list_transactions_endpoint(
     month: int | None = Query(default=None, ge=1, le=12),
     year: int | None = Query(default=None, ge=1000, le=9999),
+    category: ExpenseCategory | None = Query(default=None),
     search: str | None = Query(default=None),
 ) -> TransactionListResponse:
-    """Ambil daftar riwayat item transaksi dengan filter opsional month, year, dan search."""
+    """Ambil daftar riwayat item transaksi dengan filter opsional month, year, category, dan search."""
     items = transaction_service.get_transactions(
         month=month,
         year=year,
+        category=category,
         search=search,
     )
     return TransactionListResponse(count=len(items), data=items)

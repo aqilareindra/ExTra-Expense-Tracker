@@ -63,7 +63,13 @@ class TestDatabaseSchemaAndIntegrity:
                     "PRAGMA table_info(transaction_items);"
                 ).fetchall()
             }
-            assert item_cols == {"id", "transaction_id", "item_name", "price"}
+            assert item_cols == {
+                "id",
+                "transaction_id",
+                "item_name",
+                "category",
+                "price",
+            }
 
             indexes = {
                 row["name"]
@@ -73,8 +79,49 @@ class TestDatabaseSchemaAndIntegrity:
             }
             assert "idx_transactions_date" in indexes
             assert "idx_transaction_items_transaction_id" in indexes
+            assert "idx_transaction_items_category" in indexes
         finally:
             conn.close()
+
+    def test_init_db_migrates_legacy_v1_0_0_schema_preserving_existing_rows(
+        self, tmp_path: Path
+    ) -> None:
+        legacy_db = tmp_path / "legacy_v1_0_0.db"
+        raw_conn = sqlite3.connect(str(legacy_db))
+        try:
+            raw_conn.executescript(
+                """
+                CREATE TABLE transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transaction_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE transaction_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transaction_id INTEGER NOT NULL,
+                    item_name TEXT NOT NULL CHECK (length(trim(item_name)) > 0),
+                    price INTEGER NOT NULL CHECK (price >= 0),
+                    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                );
+                INSERT INTO transactions (transaction_date) VALUES ('2026-11-10');
+                INSERT INTO transaction_items (transaction_id, item_name, price)
+                VALUES (1, 'Indomie Goreng', 3500), (1, 'Aqua 600ml', 4000);
+                """
+            )
+            raw_conn.commit()
+        finally:
+            raw_conn.close()
+
+        # Jalankan init_db() di atas file DB lama (harus idempoten & aman)
+        init_db(legacy_db)
+        init_db(legacy_db)
+
+        migrated_items = transaction_service.get_transactions(db_path=legacy_db)
+        assert len(migrated_items) == 2
+        assert [(it.name, it.price, it.category) for it in migrated_items] == [
+            ("Aqua 600ml", 4000, "Lainnya"),
+            ("Indomie Goreng", 3500, "Lainnya"),
+        ]
 
     def test_sqlite_check_and_foreign_key_constraints_enforced(
         self, isolated_db: Path
@@ -326,3 +373,64 @@ class TestTransactionServiceCRUD:
             )
             is False
         )
+
+    def test_category_persistence_filter_and_partial_update(
+        self, isolated_db: Path
+    ) -> None:
+        created = transaction_service.create_transaction(
+            TransactionCreateRequest(
+                date="2026-11-26",
+                items=[
+                    TransactionItemCreate(
+                        name="Bensin Pertalite",
+                        price=25000,
+                        category="Transportasi",
+                    ),
+                    TransactionItemCreate(
+                        name="Kopi Susu",
+                        price=18000,
+                        category="Makanan & Minuman",
+                    ),
+                    TransactionItemCreate(name="Parkir", price=2000),
+                ],
+            ),
+            db_path=isolated_db,
+        )
+        assert [it.category for it in created.items] == [
+            "Transportasi",
+            "Makanan & Minuman",
+            "Lainnya",
+        ]
+
+        only_transport = transaction_service.get_transactions(
+            category="Transportasi", db_path=isolated_db
+        )
+        assert len(only_transport) == 1
+        assert only_transport[0].name == "Bensin Pertalite"
+
+        # Update hanya category tanpa menyentuh name/price/date
+        parkir_item = created.items[2]
+        updated_parkir = transaction_service.update_item(
+            item_id=parkir_item.id,
+            payload=ItemUpdateRequest(category="Transportasi"),
+            db_path=isolated_db,
+        )
+        assert updated_parkir is not None
+        assert updated_parkir.category == "Transportasi"
+        assert updated_parkir.name == "Parkir"
+        assert updated_parkir.price == 2000
+
+        # Update price saja harus mempertahankan category yang sudah ada
+        re_updated = transaction_service.update_item(
+            item_id=parkir_item.id,
+            payload=ItemUpdateRequest(price=3000),
+            db_path=isolated_db,
+        )
+        assert re_updated is not None
+        assert re_updated.category == "Transportasi"
+        assert re_updated.price == 3000
+
+        with pytest.raises(ValueError):
+            transaction_service.get_transactions(
+                category="Kategori Ilegal", db_path=isolated_db
+            )

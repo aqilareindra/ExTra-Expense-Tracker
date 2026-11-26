@@ -1,5 +1,5 @@
 /**
- * history.js — Daftar riwayat pengeluaran, pencarian nama barang, filter bulan/tahun,
+ * history.js — Daftar riwayat pengeluaran, pencarian nama barang, filter bulan/tahun/kategori,
  * edit item (PUT /api/items/{id}), serta hapus item/transaksi dengan dialog konfirmasi.
  */
 (function () {
@@ -7,6 +7,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     const searchInput = document.getElementById("history-search-input");
+    const categorySelect = document.getElementById("history-category-select");
     const monthSelect = document.getElementById("history-month-select");
     const yearSelect = document.getElementById("history-year-select");
     const resetFilterBtn = document.getElementById("btn-reset-history-filter");
@@ -27,6 +28,7 @@
     const editIdInput = document.getElementById("edit-item-id");
     const editDateInput = document.getElementById("edit-item-date");
     const editNameInput = document.getElementById("edit-item-name");
+    const editCategorySelect = document.getElementById("edit-item-category");
     const editPriceInput = document.getElementById("edit-item-price");
     const closeEditBtn = document.getElementById("btn-close-edit-modal");
     const cancelEditBtn = document.getElementById("btn-cancel-edit-modal");
@@ -44,6 +46,9 @@
     let isSubmittingDelete = false;
     let pendingDeleteAction = null;
     const knownYears = new Set();
+
+    ExTraUI.populateCategorySelect(categorySelect, "", true);
+    ExTraUI.populateCategorySelect(editCategorySelect, ExTraUI.DEFAULT_CATEGORY, false);
 
     function populateYearOptions() {
       const currentSelected = yearSelect.value;
@@ -77,6 +82,7 @@
     function hasActiveFilters() {
       return Boolean(
         (searchInput.value || "").trim() ||
+          categorySelect.value !== "" ||
           monthSelect.value !== "" ||
           yearSelect.value !== ""
       );
@@ -87,10 +93,12 @@
       editIdInput.value = String(item.id);
       editDateInput.value = item.date;
       editNameInput.value = item.name;
+      editCategorySelect.value = ExTraUI.normalizeCategory(item.category);
       editPriceInput.value = String(item.price);
 
       editDateInput.classList.remove("input-invalid");
       editNameInput.classList.remove("input-invalid");
+      editCategorySelect.classList.remove("input-invalid");
       editPriceInput.classList.remove("input-invalid");
 
       editBackdrop.hidden = false;
@@ -148,6 +156,12 @@
         const tdName = document.createElement("td");
         tdName.textContent = item.name;
 
+        const tdCategory = document.createElement("td");
+        const catBadge = document.createElement("span");
+        catBadge.className = "badge badge-category";
+        catBadge.textContent = ExTraUI.normalizeCategory(item.category);
+        tdCategory.appendChild(catBadge);
+
         const tdPrice = document.createElement("td");
         tdPrice.className = "text-right";
         const priceStrong = document.createElement("strong");
@@ -185,7 +199,7 @@
         actionsWrap.append(editBtn, delItemBtn, delTxBtn);
         tdActions.appendChild(actionsWrap);
 
-        tr.append(tdDate, tdName, tdPrice, tdActions);
+        tr.append(tdDate, tdName, tdCategory, tdPrice, tdActions);
         tbody.appendChild(tr);
       });
     }
@@ -199,6 +213,7 @@
       const filters = {
         month: monthSelect.value || undefined,
         year: yearSelect.value || undefined,
+        category: categorySelect.value || undefined,
         search: (searchInput.value || "").trim() || undefined,
       };
 
@@ -213,11 +228,11 @@
           if (hasActiveFilters()) {
             emptyTitleEl.textContent = "Tidak ada barang yang cocok";
             emptyDescEl.textContent =
-              "Coba ubah kata kunci pencarian atau pilih periode bulan dan tahun lainnya.";
+              "Coba ubah kata kunci pencarian, kategori, atau pilih periode bulan dan tahun lainnya.";
           } else {
             emptyTitleEl.textContent = "Belum ada catatan transaksi";
             emptyDescEl.textContent =
-              "Unggah foto struk belanja pertama Anda melalui tab Upload & Preview.";
+              "Unggah foto struk belanja atau catat manual melalui tab Catat Pengeluaran.";
           }
           emptyStateEl.hidden = false;
         } else {
@@ -256,11 +271,13 @@
       }
     });
 
+    categorySelect.addEventListener("change", loadHistory);
     monthSelect.addEventListener("change", loadHistory);
     yearSelect.addEventListener("change", loadHistory);
 
     resetFilterBtn.addEventListener("click", () => {
       searchInput.value = "";
+      categorySelect.value = "";
       monthSelect.value = "";
       yearSelect.value = "";
       loadHistory();
@@ -283,6 +300,7 @@
       const itemId = Number(editIdInput.value);
       const newDate = (editDateInput.value || "").trim();
       const newName = (editNameInput.value || "").trim();
+      const newCategory = (editCategorySelect.value || "").trim();
       const newPrice = ExTraUI.parseStrictNonNegativeInt(editPriceInput.value);
 
       if (!ExTraUI.isValidIsoCalendarDate(newDate)) {
@@ -298,6 +316,13 @@
         return;
       }
       editNameInput.classList.remove("input-invalid");
+
+      if (!ExTraUI.isValidCategory(newCategory)) {
+        editCategorySelect.classList.add("input-invalid");
+        ExTraUI.showAlert(editAlert, "Kategori pengeluaran tidak valid.", "error");
+        return;
+      }
+      editCategorySelect.classList.remove("input-invalid");
 
       if (newPrice === null) {
         editPriceInput.classList.add("input-invalid");
@@ -318,6 +343,7 @@
       try {
         await ExTraApi.updateItem(itemId, {
           name: newName,
+          category: newCategory,
           price: newPrice,
           date: newDate,
         });

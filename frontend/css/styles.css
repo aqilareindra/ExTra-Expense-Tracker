@@ -300,6 +300,61 @@ body {
   border: 1px solid var(--warning-border);
 }
 
+.badge-manual {
+  background-color: var(--accent-tint);
+  color: var(--accent);
+  border: 1px solid #99f6e4;
+}
+
+.badge-category {
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.entry-top-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.entry-mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  background-color: var(--bg-surface);
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+}
+
+.mode-switch-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.mode-switch-btn:hover {
+  color: var(--text-primary);
+}
+
+.mode-switch-btn.active {
+  background-color: var(--accent);
+  color: #ffffff;
+}
+
 /* --------------------------------------------------------------------------
    Forms & Validation Highlighting
    -------------------------------------------------------------------------- */
@@ -605,8 +660,14 @@ body {
   color: var(--text-muted);
 }
 
+.col-category-input {
+  width: 220px;
+  min-width: 180px;
+}
+
 .col-price-input {
-  width: 200px;
+  width: 180px;
+  min-width: 140px;
 }
 
 .col-action-sm {
@@ -666,9 +727,30 @@ body {
 
 .filter-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr auto;
+  grid-template-columns: 1.8fr 1.2fr 1fr 0.9fr auto;
   gap: 12px;
   align-items: end;
+}
+
+.category-share-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.category-bar-track {
+  width: 100%;
+  max-width: 260px;
+  height: 7px;
+  background-color: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.category-bar-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 999px;
 }
 
 .filter-grid .form-group {

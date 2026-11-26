@@ -284,8 +284,16 @@ def test_extract_receipt_success_jpeg_and_png_without_saving_to_db(
         "data": {
             "date": "2026-11-24",
             "items": [
-                {"name": "Indomie Goreng", "price": 3500},
-                {"name": "Aqua 600ml", "price": 4000},
+                {
+                    "name": "Indomie Goreng",
+                    "price": 3500,
+                    "category": "Lainnya",
+                },
+                {
+                    "name": "Aqua 600ml",
+                    "price": 4000,
+                    "category": "Lainnya",
+                },
             ],
         },
         "warnings": [],
@@ -327,7 +335,9 @@ def test_extract_receipt_with_null_date_returns_warning(
     body = resp.json()
     assert body["status"] == "success"
     assert body["data"]["date"] is None
-    assert body["data"]["items"] == [{"name": "Roti Coklat", "price": 8500}]
+    assert body["data"]["items"] == [
+        {"name": "Roti Coklat", "price": 8500, "category": "Lainnya"}
+    ]
     assert body["warnings"] == [ai_service.MISSING_DATE_WARNING]
     assert client.get("/api/transactions").json()["count"] == 0
 
@@ -544,6 +554,7 @@ def test_monthly_summary_endpoint_with_data_and_empty_month(
         "total_expense": 0,
         "total_items": 0,
         "daily_breakdown": [],
+        "category_breakdown": [],
     }
 
     # Tambahkan transaksi di bulan lain (Oktober) dan bulan target (November)
@@ -590,6 +601,9 @@ def test_monthly_summary_endpoint_with_data_and_empty_month(
         "daily_breakdown": [
             {"date": "2026-11-10", "total": 15000, "item_count": 1},
             {"date": "2026-11-24", "total": 16000, "item_count": 3},
+        ],
+        "category_breakdown": [
+            {"category": "Lainnya", "total": 31000, "item_count": 4},
         ],
     }
 
@@ -719,6 +733,9 @@ def test_full_api_lifecycle_extract_confirm_edit_delete_and_orphan_cleanup(
         "daily_breakdown": [
             {"date": "2026-11-18", "total": 21500, "item_count": 2},
         ],
+        "category_breakdown": [
+            {"category": "Lainnya", "total": 21500, "item_count": 2},
+        ],
     }
 
     # 4. Edit harga & tanggal item pertama -> PUT /api/items/{id}
@@ -742,6 +759,9 @@ def test_full_api_lifecycle_extract_confirm_edit_delete_and_orphan_cleanup(
         "daily_breakdown": [
             {"date": "2026-11-18", "total": 15000, "item_count": 1},
             {"date": "2026-11-19", "total": 7000, "item_count": 1},
+        ],
+        "category_breakdown": [
+            {"category": "Lainnya", "total": 22000, "item_count": 2},
         ],
     }
 
@@ -769,6 +789,7 @@ def test_full_api_lifecycle_extract_confirm_edit_delete_and_orphan_cleanup(
         "total_expense": 0,
         "total_items": 0,
         "daily_breakdown": [],
+        "category_breakdown": [],
     }
 
 
@@ -845,7 +866,9 @@ def test_extract_receipt_compresses_large_rgba_png_and_recovers_from_transient_5
         "status": "success",
         "data": {
             "date": "2026-11-26",
-            "items": [{"name": "Roti Tawar", "price": 14000}],
+            "items": [
+                {"name": "Roti Tawar", "price": 14000, "category": "Lainnya"}
+            ],
         },
         "warnings": [],
     }
@@ -859,3 +882,129 @@ def test_extract_receipt_compresses_large_rgba_png_and_recovers_from_transient_5
         assert sent_img.format == "JPEG"
         assert sent_img.mode == "RGB"
         assert sent_img.size == (1280, 1600)
+
+
+def test_m1_2_manual_entry_category_filter_update_and_ai_category_normalization(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M1.2 E2E: Input manual dengan kategori, normalisasi AI tahap 1, validasi 422 tahap 2, filter & summary."""
+    # 1. AI mengembalikan kategori valid + kategori halusinasi -> dinormalisasi ke 'Lainnya'
+    monkeypatch.setattr(app_config, "get_gemini_api_key", lambda: "dummy-test-key")
+    monkeypatch.setattr(
+        ai_service,
+        "_create_genai_client",
+        lambda _key: SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=lambda **_kw: SimpleNamespace(
+                    text=(
+                        '{"is_receipt": true, "date": "2026-11-26", "items": ['
+                        '{"name": "Kopi Kenangan", "price": 22000, "category": "Makanan & Minuman"}, '
+                        '{"name": "Baterai AA", "price": 15000, "category": "Gadget & Elektronik"}'
+                        "]}"
+                    )
+                )
+            )
+        ),
+    )
+
+    ext_resp = client.post(
+        "/api/receipts/extract",
+        files={"file": ("struk.jpg", VALID_JPEG_BYTES, "image/jpeg")},
+    )
+    assert ext_resp.status_code == 200
+    assert ext_resp.json()["data"]["items"] == [
+        {"name": "Kopi Kenangan", "price": 22000, "category": "Makanan & Minuman"},
+        {"name": "Baterai AA", "price": 15000, "category": "Lainnya"},
+    ]
+
+    # 2. Input manual tanpa struk ke POST /api/transactions (dengan & tanpa category)
+    manual_resp = client.post(
+        "/api/transactions",
+        json={
+            "date": "2026-11-26",
+            "items": [
+                {
+                    "name": "MRT Jakarta",
+                    "price": 14000,
+                    "category": "Transportasi",
+                },
+                {
+                    "name": "Token Listrik",
+                    "price": 100000,
+                    "category": "Tagihan & Utilitas",
+                },
+                {"name": "Parkir Minimarket", "price": 2000},
+            ],
+        },
+    )
+    assert manual_resp.status_code == 201
+    created_items = manual_resp.json()["data"]["items"]
+    assert len(created_items) == 3
+    for row in created_items:
+        assert {
+            "id",
+            "transaction_id",
+            "date",
+            "name",
+            "category",
+            "price",
+            "created_at",
+        }.issubset(row.keys())
+    assert [r["category"] for r in created_items] == [
+        "Transportasi",
+        "Tagihan & Utilitas",
+        "Lainnya",
+    ]
+
+    # 3. Kategori tidak valid pada POST /api/transactions & PUT /api/items/{id} harus 422
+    bad_post = client.post(
+        "/api/transactions",
+        json={
+            "date": "2026-11-26",
+            "items": [{"name": " Kopi ", "price": 10000, "category": "Kategori Palsu"}],
+        },
+    )
+    assert bad_post.status_code == 422
+    assert bad_post.json()["error_code"] == "VALIDATION_ERROR"
+
+    parkir_id = created_items[2]["id"]
+    bad_put = client.put(
+        f"/api/items/{parkir_id}",
+        json={"category": "Kategori Palsu"},
+    )
+    assert bad_put.status_code == 422
+    assert bad_put.json()["error_code"] == "VALIDATION_ERROR"
+
+    # 4. Update kategori Parkir ke Transportasi & filter GET /api/transactions?category=Transportasi
+    ok_put = client.put(
+        f"/api/items/{parkir_id}",
+        json={"category": "Transportasi"},
+    )
+    assert ok_put.status_code == 200
+    assert ok_put.json()["data"]["category"] == "Transportasi"
+
+    filtered = client.get(
+        "/api/transactions",
+        params={"month": 11, "year": 2026, "category": "Transportasi"},
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["count"] == 2
+    assert {r["name"] for r in filtered.json()["data"]} == {
+        "MRT Jakarta",
+        "Parkir Minimarket",
+    }
+
+    bad_filter = client.get("/api/transactions", params={"category": "Ngawur"})
+    assert bad_filter.status_code == 422
+    assert bad_filter.json()["error_code"] == "VALIDATION_ERROR"
+
+    # 5. Verifikasi category_breakdown di GET /api/summary/monthly terurut DESC
+    summary_resp = client.get(
+        "/api/summary/monthly", params={"month": 11, "year": 2026}
+    )
+    assert summary_resp.status_code == 200
+    assert summary_resp.json()["category_breakdown"] == [
+        {"category": "Tagihan & Utilitas", "total": 100000, "item_count": 1},
+        {"category": "Transportasi", "total": 16000, "item_count": 2},
+    ]

@@ -6,6 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.schemas.categories import (
+    DEFAULT_CATEGORY,
+    EXPENSE_CATEGORIES,
+    ExpenseCategory,
+    validate_strict_category,
+)
+
 _ISO_DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -49,6 +56,7 @@ class TransactionItemCreate(BaseModel):
 
     name: str
     price: int
+    category: str = DEFAULT_CATEGORY
 
     @field_validator("name", mode="before")
     @classmethod
@@ -59,6 +67,11 @@ class TransactionItemCreate(BaseModel):
     @classmethod
     def _check_price(cls, value: object) -> int:
         return validate_strict_non_negative_price(value)
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _check_category(cls, value: object) -> str:
+        return validate_strict_category(value)
 
 
 class TransactionCreateRequest(BaseModel):
@@ -83,6 +96,7 @@ class ItemUpdateRequest(BaseModel):
     name: str | None = None
     price: int | None = None
     date: str | None = None
+    category: str | None = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -105,10 +119,24 @@ class ItemUpdateRequest(BaseModel):
             return None
         return validate_iso_calendar_date(value)
 
+    @field_validator("category", mode="before")
+    @classmethod
+    def _check_optional_category(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return validate_strict_category(value)
+
     @model_validator(mode="after")
     def _check_at_least_one_field(self) -> "ItemUpdateRequest":
-        if self.name is None and self.price is None and self.date is None:
-            raise ValueError("Minimal satu field (name, price, atau date) harus diisi.")
+        if (
+            self.name is None
+            and self.price is None
+            and self.date is None
+            and self.category is None
+        ):
+            raise ValueError(
+                "Minimal satu field (name, price, date, atau category) harus diisi."
+            )
         return self
 
 
@@ -119,6 +147,7 @@ class TransactionItemRecord(BaseModel):
     transaction_id: int
     date: str
     name: str
+    category: str = DEFAULT_CATEGORY
     price: int
     created_at: str
 

@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from backend.database import init_db
-from backend.schemas.transaction import TransactionCreateRequest, TransactionItemCreate
+from backend.schemas.transaction import (
+    ItemUpdateRequest,
+    TransactionCreateRequest,
+    TransactionItemCreate,
+)
 from backend.services import summary_service, transaction_service
 
 
@@ -45,6 +49,7 @@ class TestMonthlySummaryService:
             "total_expense": 0,
             "total_items": 0,
             "daily_breakdown": [],
+            "category_breakdown": [],
         }
 
     def test_aggregates_multiple_dates_and_same_day_transactions_chronologically(
@@ -128,3 +133,73 @@ class TestMonthlySummaryService:
             summary_service.get_monthly_summary(
                 month=bad_month, year=bad_year, db_path=isolated_db
             )
+
+    def test_category_breakdown_sorted_desc_and_reacts_to_edit_and_delete(
+        self, isolated_db: Path
+    ) -> None:
+        tx1 = transaction_service.create_transaction(
+            TransactionCreateRequest(
+                date="2026-11-10",
+                items=[
+                    TransactionItemCreate(
+                        name="Beras 5kg",
+                        price=70000,
+                        category="Kebutuhan Pokok",
+                    ),
+                    TransactionItemCreate(
+                        name="Kopi Susu",
+                        price=18000,
+                        category="Makanan & Minuman",
+                    ),
+                ],
+            ),
+            db_path=isolated_db,
+        )
+        tx2 = transaction_service.create_transaction(
+            TransactionCreateRequest(
+                date="2026-11-15",
+                items=[
+                    TransactionItemCreate(
+                        name="Nasi Padang",
+                        price=27000,
+                        category="Makanan & Minuman",
+                    ),
+                    TransactionItemCreate(
+                        name="Ojek Online",
+                        price=15000,
+                        category="Transportasi",
+                    ),
+                ],
+            ),
+            db_path=isolated_db,
+        )
+
+        initial_summary = summary_service.get_monthly_summary(
+            month=11, year=2026, db_path=isolated_db
+        )
+        assert initial_summary.total_expense == 130000
+        assert [c.model_dump() for c in initial_summary.category_breakdown] == [
+            {"category": "Kebutuhan Pokok", "total": 70000, "item_count": 1},
+            {"category": "Makanan & Minuman", "total": 45000, "item_count": 2},
+            {"category": "Transportasi", "total": 15000, "item_count": 1},
+        ]
+
+        # Ubah kategori Beras 5kg menjadi Tagihan & Utilitas dan hapus Ojek Online
+        beras_id = tx1.items[0].id
+        ojek_id = tx2.items[1].id
+        transaction_service.update_item(
+            item_id=beras_id,
+            payload=ItemUpdateRequest(category="Tagihan & Utilitas", price=30000),
+            db_path=isolated_db,
+        )
+        transaction_service.delete_item(ojek_id, db_path=isolated_db)
+
+        updated_summary = summary_service.get_monthly_summary(
+            month=11, year=2026, db_path=isolated_db
+        )
+        assert updated_summary.total_expense == 75000
+        assert updated_summary.total_items == 3
+        assert [c.model_dump() for c in updated_summary.category_breakdown] == [
+            {"category": "Makanan & Minuman", "total": 45000, "item_count": 2},
+            {"category": "Tagihan & Utilitas", "total": 30000, "item_count": 1},
+        ]

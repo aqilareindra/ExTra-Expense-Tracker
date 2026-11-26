@@ -6,6 +6,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from backend.schemas.categories import (
+    DEFAULT_CATEGORY,
+    normalize_category_lenient,
+)
+
 _ISO_DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -14,6 +19,7 @@ class ExtractedItem(BaseModel):
 
     name: str
     price: int = Field(..., ge=0)
+    category: str = Field(default=DEFAULT_CATEGORY)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -33,6 +39,11 @@ class ExtractedItem(BaseModel):
         if value < 0:
             raise ValueError("Harga barang hasil ekstraksi tidak boleh negatif.")
         return value
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, value: object) -> str:
+        return normalize_category_lenient(value)
 
 
 class ReceiptExtractionResult(BaseModel):

@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 from backend.database import db_transaction, get_connection
+from backend.schemas.categories import validate_strict_category
 from backend.schemas.transaction import (
     ItemUpdateRequest,
     TransactionCreatedData,
@@ -19,6 +20,7 @@ def _row_to_item_record(row: sqlite3.Row) -> TransactionItemRecord:
         transaction_id=int(row["transaction_id"]),
         date=str(row["date"]),
         name=str(row["name"]),
+        category=str(row["category"]),
         price=int(row["price"]),
         created_at=str(row["created_at"]),
     )
@@ -47,10 +49,13 @@ def create_transaction(
 
         conn.executemany(
             """
-            INSERT INTO transaction_items (transaction_id, item_name, price)
-            VALUES (?, ?, ?)
+            INSERT INTO transaction_items (transaction_id, item_name, category, price)
+            VALUES (?, ?, ?, ?)
             """,
-            [(transaction_id, item.name, item.price) for item in payload.items],
+            [
+                (transaction_id, item.name, item.category, item.price)
+                for item in payload.items
+            ],
         )
 
         tx_row = conn.execute(
@@ -65,6 +70,7 @@ def create_transaction(
                 ti.transaction_id AS transaction_id,
                 t.transaction_date AS date,
                 ti.item_name AS name,
+                ti.category AS category,
                 ti.price AS price,
                 t.created_at AS created_at
             FROM transaction_items ti
@@ -86,10 +92,11 @@ def create_transaction(
 def get_transactions(
     month: int | None = None,
     year: int | None = None,
+    category: str | None = None,
     search: str | None = None,
     db_path: str | Path | None = None,
 ) -> list[TransactionItemRecord]:
-    """Ambil daftar item transaksi dengan filter opsional month, year, dan search."""
+    """Ambil daftar item transaksi dengan filter opsional month, year, category, dan search."""
     if month is not None and (isinstance(month, bool) or not 1 <= month <= 12):
         raise ValueError("Parameter month harus bernilai antara 1 hingga 12.")
     if year is not None and (isinstance(year, bool) or not 1000 <= year <= 9999):
@@ -108,6 +115,11 @@ def get_transactions(
         conditions.append("substr(t.transaction_date, 6, 2) = ?")
         params.append(f"{month:02d}")
 
+    if category is not None and category.strip():
+        validated_cat = validate_strict_category(category)
+        conditions.append("ti.category = ?")
+        params.append(validated_cat)
+
     if search is not None and search.strip():
         escaped = _escape_like_pattern(search.strip().lower())
         conditions.append("LOWER(ti.item_name) LIKE ? ESCAPE '\\'")
@@ -120,6 +132,7 @@ def get_transactions(
             ti.transaction_id AS transaction_id,
             t.transaction_date AS date,
             ti.item_name AS name,
+            ti.category AS category,
             ti.price AS price,
             t.created_at AS created_at
         FROM transaction_items ti
@@ -142,7 +155,7 @@ def update_item(
     payload: ItemUpdateRequest,
     db_path: str | Path | None = None,
 ) -> TransactionItemRecord | None:
-    """Perbarui nama, harga, dan/atau tanggal transaksi sebuah item.
+    """Perbarui nama, harga, kategori, dan/atau tanggal transaksi sebuah item.
 
     Jika tanggal diubah pada item dalam transaksi multi-item, item dipindahkan ke
     record transactions baru agar tanggal item lain pada transaksi asal tetap utuh.
@@ -154,6 +167,7 @@ def update_item(
                 ti.id AS id,
                 ti.transaction_id AS transaction_id,
                 ti.item_name AS item_name,
+                ti.category AS category,
                 ti.price AS price,
                 t.transaction_date AS transaction_date
             FROM transaction_items ti
@@ -168,8 +182,17 @@ def update_item(
 
         current_tx_id = int(existing["transaction_id"])
         target_tx_id = current_tx_id
-        new_name = payload.name if payload.name is not None else str(existing["item_name"])
-        new_price = payload.price if payload.price is not None else int(existing["price"])
+        new_name = (
+            payload.name if payload.name is not None else str(existing["item_name"])
+        )
+        new_category = (
+            payload.category
+            if payload.category is not None
+            else str(existing["category"])
+        )
+        new_price = (
+            payload.price if payload.price is not None else int(existing["price"])
+        )
 
         if payload.date is not None and payload.date != str(existing["transaction_date"]):
             count_row = conn.execute(
@@ -193,10 +216,10 @@ def update_item(
         conn.execute(
             """
             UPDATE transaction_items
-            SET transaction_id = ?, item_name = ?, price = ?
+            SET transaction_id = ?, item_name = ?, category = ?, price = ?
             WHERE id = ?
             """,
-            (target_tx_id, new_name, new_price, item_id),
+            (target_tx_id, new_name, new_category, new_price, item_id),
         )
 
         updated_row = conn.execute(
@@ -206,6 +229,7 @@ def update_item(
                 ti.transaction_id AS transaction_id,
                 t.transaction_date AS date,
                 ti.item_name AS name,
+                ti.category AS category,
                 ti.price AS price,
                 t.created_at AS created_at
             FROM transaction_items ti

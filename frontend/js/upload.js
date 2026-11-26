@@ -1,6 +1,6 @@
 /**
- * upload.js — Logika unggah foto struk, indikator loading, tabel preview editable,
- * serta konfirmasi penyimpanan eksplisit (Human-in-the-Loop).
+ * upload.js — Logika unggah foto struk (AI), tabel preview editable dengan kategori,
+ * form Input Manual tanpa struk, serta konfirmasi penyimpanan eksplisit (Human-in-the-Loop).
  */
 (function () {
   "use strict";
@@ -10,6 +10,13 @@
   const ALLOWED_MIMES = ["image/jpeg", "image/png"];
 
   document.addEventListener("DOMContentLoaded", () => {
+    // Mode Switch Elements
+    const btnModeScan = document.getElementById("btn-mode-scan");
+    const btnModeManual = document.getElementById("btn-mode-manual");
+    const scanModeContainer = document.getElementById("scan-mode-container");
+    const manualModeContainer = document.getElementById("manual-mode-container");
+
+    // Scan & Upload Elements
     const uploadForm = document.getElementById("upload-form");
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("receipt-file-input");
@@ -24,6 +31,7 @@
     const uploadLoading = document.getElementById("upload-loading");
     const uploadAlert = document.getElementById("upload-alert");
 
+    // Preview Elements
     const previewSection = document.getElementById("preview-section");
     const previewWarningBanner = document.getElementById("preview-warning-banner");
     const previewValidationAlert = document.getElementById("preview-validation-alert");
@@ -36,10 +44,35 @@
     const btnCancelPreview = document.getElementById("btn-cancel-preview");
     const btnSaveTransaction = document.getElementById("btn-save-transaction");
 
+    // Manual Entry Elements
+    const manualForm = document.getElementById("manual-entry-form");
+    const manualValidationAlert = document.getElementById("manual-validation-alert");
+    const manualDateInput = document.getElementById("manual-date-input");
+    const manualTbody = document.getElementById("manual-items-tbody");
+    const manualTotalDisplay = document.getElementById("manual-total-display");
+    const btnAddManualRow = document.getElementById("btn-add-manual-row");
+    const btnResetManual = document.getElementById("btn-reset-manual");
+    const btnSaveManual = document.getElementById("btn-save-manual-transaction");
+
     let selectedFile = null;
     let currentObjectUrl = null;
     let isExtracting = false;
-    let isSaving = false;
+    let isSavingPreview = false;
+    let isSavingManual = false;
+
+    function switchEntryMode(mode) {
+      const isManual = mode === "manual";
+      btnModeScan.classList.toggle("active", !isManual);
+      btnModeScan.setAttribute("aria-pressed", isManual ? "false" : "true");
+      btnModeManual.classList.toggle("active", isManual);
+      btnModeManual.setAttribute("aria-pressed", isManual ? "true" : "false");
+
+      scanModeContainer.hidden = isManual;
+      manualModeContainer.hidden = !isManual;
+    }
+
+    btnModeScan.addEventListener("click", () => switchEntryMode("scan"));
+    btnModeManual.addEventListener("click", () => switchEntryMode("manual"));
 
     function revokeThumbnailUrl() {
       if (currentObjectUrl) {
@@ -109,6 +142,170 @@
       btnClearFile.hidden = true;
     }
 
+    function refreshTableNumbersAndSubtotal(tbodyEl, totalDisplayEl) {
+      const rows = tbodyEl.querySelectorAll("tr.editable-item-row");
+      let total = 0;
+      rows.forEach((row, index) => {
+        const numCell = row.querySelector(".col-num");
+        if (numCell) {
+          numCell.textContent = String(index + 1);
+        }
+        const priceInput = row.querySelector(".item-price-input");
+        const parsed = ExTraUI.parseStrictNonNegativeInt(priceInput ? priceInput.value : "");
+        if (parsed !== null) {
+          total += parsed;
+        }
+      });
+      totalDisplayEl.textContent = ExTraUI.formatRupiah(total);
+    }
+
+    function createEditableItemRow(
+      item = { name: "", price: "", category: ExTraUI.DEFAULT_CATEGORY },
+      onChangeCallback = () => {}
+    ) {
+      const tr = document.createElement("tr");
+      tr.className = "editable-item-row preview-item-row";
+
+      const tdNum = document.createElement("td");
+      tdNum.className = "col-num";
+
+      const tdName = document.createElement("td");
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.className = "form-control item-name-input preview-name-input";
+      nameInput.placeholder = "Nama barang / pengeluaran";
+      nameInput.value = item.name != null ? String(item.name) : "";
+      nameInput.maxLength = 200;
+      nameInput.addEventListener("input", () => {
+        nameInput.classList.remove("input-invalid");
+      });
+      tdName.appendChild(nameInput);
+
+      const tdCategory = document.createElement("td");
+      const categorySelect = document.createElement("select");
+      categorySelect.className = "form-control item-category-select preview-category-select";
+      ExTraUI.populateCategorySelect(
+        categorySelect,
+        ExTraUI.normalizeCategory(item.category),
+        false
+      );
+      categorySelect.addEventListener("change", () => {
+        categorySelect.classList.remove("input-invalid");
+      });
+      tdCategory.appendChild(categorySelect);
+
+      const tdPrice = document.createElement("td");
+      const priceInput = document.createElement("input");
+      priceInput.type = "number";
+      priceInput.className = "form-control item-price-input preview-price-input";
+      priceInput.placeholder = "0";
+      priceInput.min = "0";
+      priceInput.step = "1";
+      priceInput.value =
+        item.price !== undefined && item.price !== null && item.price !== ""
+          ? String(item.price)
+          : "";
+      priceInput.addEventListener("input", () => {
+        priceInput.classList.remove("input-invalid");
+        onChangeCallback();
+      });
+      tdPrice.appendChild(priceInput);
+
+      const tdAction = document.createElement("td");
+      tdAction.className = "col-action-sm";
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "btn btn-sm btn-ghost-danger";
+      removeBtn.textContent = "Hapus";
+      removeBtn.addEventListener("click", () => {
+        tr.remove();
+        onChangeCallback();
+      });
+      tdAction.appendChild(removeBtn);
+
+      tr.append(tdNum, tdName, tdCategory, tdPrice, tdAction);
+      return tr;
+    }
+
+    function collectAndValidatePayload(dateInputEl, tbodyEl) {
+      const dateVal = (dateInputEl.value || "").trim();
+      let hasError = false;
+      const errorMessages = [];
+
+      if (!ExTraUI.isValidIsoCalendarDate(dateVal)) {
+        dateInputEl.classList.add("input-invalid");
+        errorMessages.push("Tanggal transaksi wajib diisi dengan tanggal kalender yang valid.");
+        hasError = true;
+      } else {
+        dateInputEl.classList.remove("input-invalid");
+      }
+
+      const rowElements = Array.from(tbodyEl.querySelectorAll("tr.editable-item-row"));
+      if (rowElements.length === 0) {
+        errorMessages.push("Daftar barang minimal harus berisi 1 item.");
+        hasError = true;
+      }
+
+      const validatedItems = [];
+      rowElements.forEach((row, idx) => {
+        const nameInput = row.querySelector(".item-name-input");
+        const categorySelect = row.querySelector(".item-category-select");
+        const priceInput = row.querySelector(".item-price-input");
+
+        const trimmedName = (nameInput.value || "").trim();
+        const selectedCategory = (categorySelect.value || "").trim();
+        const parsedPrice = ExTraUI.parseStrictNonNegativeInt(priceInput.value);
+
+        if (!trimmedName) {
+          nameInput.classList.add("input-invalid");
+          errorMessages.push(`Baris #${idx + 1}: Nama barang tidak boleh kosong.`);
+          hasError = true;
+        } else {
+          nameInput.classList.remove("input-invalid");
+        }
+
+        if (!ExTraUI.isValidCategory(selectedCategory)) {
+          categorySelect.classList.add("input-invalid");
+          errorMessages.push(`Baris #${idx + 1}: Pilih kategori pengeluaran yang valid.`);
+          hasError = true;
+        } else {
+          categorySelect.classList.remove("input-invalid");
+        }
+
+        if (parsedPrice === null) {
+          priceInput.classList.add("input-invalid");
+          errorMessages.push(
+            `Baris #${idx + 1}: Harga harus berupa bilangan bulat minimal 0.`
+          );
+          hasError = true;
+        } else {
+          priceInput.classList.remove("input-invalid");
+        }
+
+        if (trimmedName && ExTraUI.isValidCategory(selectedCategory) && parsedPrice !== null) {
+          validatedItems.push({
+            name: trimmedName,
+            price: parsedPrice,
+            category: selectedCategory,
+          });
+        }
+      });
+
+      return {
+        hasError,
+        errorMessage: errorMessages[0] || "",
+        date: dateVal,
+        items: validatedItems,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Scan Struk & Preview Helpers
+    // -------------------------------------------------------------------------
+    function refreshPreviewSubtotal() {
+      refreshTableNumbersAndSubtotal(previewTbody, previewTotalDisplay);
+    }
+
     function resetPreviewSection() {
       previewSection.hidden = true;
       previewTbody.replaceChildren();
@@ -131,82 +328,14 @@
       btnExtract.textContent = active ? "Memproses..." : "Ekstrak Isi Struk";
     }
 
-    function setSavingState(active) {
-      isSaving = active;
+    function setSavingPreviewState(active) {
+      isSavingPreview = active;
       btnSaveTransaction.disabled = active;
       btnCancelPreview.disabled = active;
       btnAddRow.disabled = active;
       btnSaveTransaction.textContent = active
         ? "Menyimpan..."
         : "Konfirmasi & Simpan";
-    }
-
-    function refreshRowNumbersAndSubtotal() {
-      const rows = previewTbody.querySelectorAll("tr.preview-item-row");
-      let total = 0;
-      rows.forEach((row, index) => {
-        const numCell = row.querySelector(".col-num");
-        if (numCell) {
-          numCell.textContent = String(index + 1);
-        }
-        const priceInput = row.querySelector(".preview-price-input");
-        const parsed = ExTraUI.parseStrictNonNegativeInt(priceInput ? priceInput.value : "");
-        if (parsed !== null) {
-          total += parsed;
-        }
-      });
-      previewTotalDisplay.textContent = ExTraUI.formatRupiah(total);
-    }
-
-    function createPreviewRow(item = { name: "", price: "" }) {
-      const tr = document.createElement("tr");
-      tr.className = "preview-item-row";
-
-      const tdNum = document.createElement("td");
-      tdNum.className = "col-num";
-
-      const tdName = document.createElement("td");
-      const nameInput = document.createElement("input");
-      nameInput.type = "text";
-      nameInput.className = "form-control preview-name-input";
-      nameInput.placeholder = "Nama barang";
-      nameInput.value = item.name != null ? String(item.name) : "";
-      nameInput.maxLength = 200;
-      nameInput.addEventListener("input", () => {
-        nameInput.classList.remove("input-invalid");
-      });
-      tdName.appendChild(nameInput);
-
-      const tdPrice = document.createElement("td");
-      const priceInput = document.createElement("input");
-      priceInput.type = "number";
-      priceInput.className = "form-control preview-price-input";
-      priceInput.placeholder = "0";
-      priceInput.min = "0";
-      priceInput.step = "1";
-      priceInput.value = item.price !== undefined && item.price !== null && item.price !== ""
-        ? String(item.price)
-        : "";
-      priceInput.addEventListener("input", () => {
-        priceInput.classList.remove("input-invalid");
-        refreshRowNumbersAndSubtotal();
-      });
-      tdPrice.appendChild(priceInput);
-
-      const tdAction = document.createElement("td");
-      tdAction.className = "col-action-sm";
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "btn btn-sm btn-ghost-danger";
-      removeBtn.textContent = "Hapus";
-      removeBtn.addEventListener("click", () => {
-        tr.remove();
-        refreshRowNumbersAndSubtotal();
-      });
-      tdAction.appendChild(removeBtn);
-
-      tr.append(tdNum, tdName, tdPrice, tdAction);
-      return tr;
     }
 
     function openPreviewTable(extractedData, warnings) {
@@ -234,16 +363,54 @@
         : [];
 
       if (items.length === 0) {
-        previewTbody.appendChild(createPreviewRow({ name: "", price: "" }));
+        previewTbody.appendChild(
+          createEditableItemRow(
+            { name: "", price: "", category: ExTraUI.DEFAULT_CATEGORY },
+            refreshPreviewSubtotal
+          )
+        );
       } else {
         items.forEach((item) => {
-          previewTbody.appendChild(createPreviewRow(item));
+          previewTbody.appendChild(
+            createEditableItemRow(item, refreshPreviewSubtotal)
+          );
         });
       }
 
-      refreshRowNumbersAndSubtotal();
+      refreshPreviewSubtotal();
       previewSection.hidden = false;
       previewSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // -------------------------------------------------------------------------
+    // Manual Input Helpers
+    // -------------------------------------------------------------------------
+    function refreshManualSubtotal() {
+      refreshTableNumbersAndSubtotal(manualTbody, manualTotalDisplay);
+    }
+
+    function resetManualForm() {
+      ExTraUI.hideAlert(manualValidationAlert);
+      manualDateInput.value = ExTraUI.getTodayIsoDate();
+      manualDateInput.classList.remove("input-invalid");
+      manualTbody.replaceChildren();
+      manualTbody.appendChild(
+        createEditableItemRow(
+          { name: "", price: "", category: ExTraUI.DEFAULT_CATEGORY },
+          refreshManualSubtotal
+        )
+      );
+      refreshManualSubtotal();
+    }
+
+    function setSavingManualState(active) {
+      isSavingManual = active;
+      btnSaveManual.disabled = active;
+      btnResetManual.disabled = active;
+      btnAddManualRow.disabled = active;
+      btnSaveManual.textContent = active
+        ? "Menyimpan..."
+        : "Konfirmasi & Simpan";
     }
 
     // Event Listeners: Dropzone & File Input
@@ -307,6 +474,12 @@
       }
     });
 
+    manualDateInput.addEventListener("input", () => {
+      if (ExTraUI.isValidIsoCalendarDate(manualDateInput.value)) {
+        manualDateInput.classList.remove("input-invalid");
+      }
+    });
+
     // Submit Ekstraksi ke POST /api/receipts/extract
     uploadForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -330,102 +503,55 @@
       }
     });
 
-    // Tambah baris item manual di tabel preview
+    // Tambah baris item di tabel preview
     btnAddRow.addEventListener("click", () => {
-      if (isSaving) return;
-      const newRow = createPreviewRow({ name: "", price: "" });
+      if (isSavingPreview) return;
+      const newRow = createEditableItemRow(
+        { name: "", price: "", category: ExTraUI.DEFAULT_CATEGORY },
+        refreshPreviewSubtotal
+      );
       previewTbody.appendChild(newRow);
-      refreshRowNumbersAndSubtotal();
-      const nameField = newRow.querySelector(".preview-name-input");
+      refreshPreviewSubtotal();
+      const nameField = newRow.querySelector(".item-name-input");
       if (nameField) nameField.focus();
     });
 
     // Batal / Upload Ulang
     btnCancelPreview.addEventListener("click", () => {
-      if (isSaving) return;
+      if (isSavingPreview) return;
       resetPreviewSection();
       clearSelectedFile();
       ExTraUI.hideAlert(uploadAlert);
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
-    // Konfirmasi & Simpan ke POST /api/transactions
+    // Konfirmasi & Simpan dari Preview Struk -> POST /api/transactions
     btnSaveTransaction.addEventListener("click", async () => {
-      if (isSaving) return;
+      if (isSavingPreview) return;
       ExTraUI.hideAlert(previewValidationAlert);
 
-      const dateVal = (previewDateInput.value || "").trim();
-      let hasError = false;
-      const errorMessages = [];
-
-      if (!ExTraUI.isValidIsoCalendarDate(dateVal)) {
-        previewDateInput.classList.add("input-invalid");
-        errorMessages.push("Tanggal transaksi wajib diisi dengan tanggal kalender yang valid.");
-        hasError = true;
-      } else {
-        previewDateInput.classList.remove("input-invalid");
-      }
-
-      const rowElements = Array.from(
-        previewTbody.querySelectorAll("tr.preview-item-row")
-      );
-      if (rowElements.length === 0) {
-        errorMessages.push("Daftar barang minimal harus berisi 1 item.");
-        hasError = true;
-      }
-
-      const validatedItems = [];
-      rowElements.forEach((row, idx) => {
-        const nameInput = row.querySelector(".preview-name-input");
-        const priceInput = row.querySelector(".preview-price-input");
-
-        const trimmedName = (nameInput.value || "").trim();
-        const parsedPrice = ExTraUI.parseStrictNonNegativeInt(priceInput.value);
-
-        if (!trimmedName) {
-          nameInput.classList.add("input-invalid");
-          errorMessages.push(`Baris #${idx + 1}: Nama barang tidak boleh kosong.`);
-          hasError = true;
-        } else {
-          nameInput.classList.remove("input-invalid");
-        }
-
-        if (parsedPrice === null) {
-          priceInput.classList.add("input-invalid");
-          errorMessages.push(
-            `Baris #${idx + 1}: Harga harus berupa bilangan bulat minimal 0.`
-          );
-          hasError = true;
-        } else {
-          priceInput.classList.remove("input-invalid");
-        }
-
-        if (trimmedName && parsedPrice !== null) {
-          validatedItems.push({ name: trimmedName, price: parsedPrice });
-        }
-      });
-
-      if (hasError) {
-        ExTraUI.showAlert(previewValidationAlert, errorMessages[0], "error");
+      const validation = collectAndValidatePayload(previewDateInput, previewTbody);
+      if (validation.hasError) {
+        ExTraUI.showAlert(previewValidationAlert, validation.errorMessage, "error");
         return;
       }
 
-      setSavingState(true);
+      setSavingPreviewState(true);
       try {
         const created = await ExTraApi.createTransaction({
-          date: dateVal,
-          items: validatedItems,
+          date: validation.date,
+          items: validation.items,
         });
         const savedCount =
           created && created.data && Array.isArray(created.data.items)
             ? created.data.items.length
-            : validatedItems.length;
+            : validation.items.length;
 
         resetPreviewSection();
         clearSelectedFile();
-        ExTraUI.notifyDataChanged({ date: dateVal });
+        ExTraUI.notifyDataChanged({ date: validation.date });
         ExTraUI.showToast(
-          `Berhasil menyimpan ${savedCount} barang untuk tanggal ${ExTraUI.formatDateHuman(dateVal)}.`,
+          `Berhasil menyimpan ${savedCount} barang untuk tanggal ${ExTraUI.formatDateHuman(validation.date)}.`,
           "Lihat Riwayat",
           () => ExTraUI.switchTab("history")
         );
@@ -436,8 +562,69 @@
           "error"
         );
       } finally {
-        setSavingState(false);
+        setSavingPreviewState(false);
       }
     });
+
+    // Event Listeners: Input Manual
+    btnAddManualRow.addEventListener("click", () => {
+      if (isSavingManual) return;
+      const newRow = createEditableItemRow(
+        { name: "", price: "", category: ExTraUI.DEFAULT_CATEGORY },
+        refreshManualSubtotal
+      );
+      manualTbody.appendChild(newRow);
+      refreshManualSubtotal();
+      const nameField = newRow.querySelector(".item-name-input");
+      if (nameField) nameField.focus();
+    });
+
+    btnResetManual.addEventListener("click", () => {
+      if (isSavingManual) return;
+      resetManualForm();
+    });
+
+    manualForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (isSavingManual) return;
+      ExTraUI.hideAlert(manualValidationAlert);
+
+      const validation = collectAndValidatePayload(manualDateInput, manualTbody);
+      if (validation.hasError) {
+        ExTraUI.showAlert(manualValidationAlert, validation.errorMessage, "error");
+        return;
+      }
+
+      setSavingManualState(true);
+      try {
+        const created = await ExTraApi.createTransaction({
+          date: validation.date,
+          items: validation.items,
+        });
+        const savedCount =
+          created && created.data && Array.isArray(created.data.items)
+            ? created.data.items.length
+            : validation.items.length;
+
+        resetManualForm();
+        ExTraUI.notifyDataChanged({ date: validation.date });
+        ExTraUI.showToast(
+          `Berhasil mencatat manual ${savedCount} barang untuk tanggal ${ExTraUI.formatDateHuman(validation.date)}.`,
+          "Lihat Riwayat",
+          () => ExTraUI.switchTab("history")
+        );
+      } catch (err) {
+        ExTraUI.showAlert(
+          manualValidationAlert,
+          err.message || "Gagal menyimpan pengeluaran manual ke database.",
+          "error"
+        );
+      } finally {
+        setSavingManualState(false);
+      }
+    });
+
+    // Inisialisasi awal form Input Manual
+    resetManualForm();
   });
 })();

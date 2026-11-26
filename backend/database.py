@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     transaction_id INTEGER NOT NULL,
     item_name TEXT NOT NULL CHECK (length(trim(item_name)) > 0),
+    category TEXT NOT NULL DEFAULT 'Lainnya' CHECK (length(trim(category)) > 0),
     price INTEGER NOT NULL CHECK (price >= 0),
     FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
 );
@@ -54,8 +55,27 @@ def db_transaction(db_path: str | Path | None = None) -> Iterator[sqlite3.Connec
         conn.close()
 
 
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Jalankan migrasi skema backward-compatible untuk database lama (v1.0.0 -> v1.1)."""
+    item_columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(transaction_items);").fetchall()
+    }
+    if "category" not in item_columns:
+        conn.execute(
+            "ALTER TABLE transaction_items "
+            "ADD COLUMN category TEXT NOT NULL DEFAULT 'Lainnya';"
+        )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transaction_items_category "
+        "ON transaction_items(category);"
+    )
+
+
 def init_db(db_path: str | Path | None = None) -> None:
-    """Inisialisasi tabel transactions, transaction_items, beserta index terkait."""
+    """Inisialisasi tabel transactions, transaction_items, migrasi aman, dan index terkait."""
     with db_transaction(db_path) as conn:
         conn.executescript(_SCHEMA_SQL)
         conn.execute("PRAGMA foreign_keys = ON;")
+        _migrate_schema(conn)

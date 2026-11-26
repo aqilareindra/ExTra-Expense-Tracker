@@ -27,7 +27,7 @@
           aria-controls="panel-upload"
           data-tab="upload"
         >
-          Upload &amp; Preview
+          Catat Pengeluaran
         </button>
         <button
           type="button"
@@ -60,7 +60,7 @@
     <div id="global-toast" class="toast" role="status" aria-live="polite" hidden></div>
 
     <!-- =================================================================== -->
-    <!-- TAB 1: UPLOAD & PREVIEW                                             -->
+    <!-- TAB 1: UPLOAD STRUK (AI) & INPUT MANUAL                             -->
     <!-- =================================================================== -->
     <section
       id="panel-upload"
@@ -68,118 +68,199 @@
       role="tabpanel"
       aria-labelledby="tab-btn-upload"
     >
-      <div class="section-header">
-        <h2>Unggah Foto Struk Belanja</h2>
-        <p>Unggah foto struk (JPG, JPEG, atau PNG, maks. 5 MB) untuk diekstrak otomatis lalu periksa sebelum disimpan.</p>
-      </div>
+      <div class="section-header entry-top-bar">
+        <div>
+          <h2>Catat Pengeluaran Baru</h2>
+          <p>Pilih unggah foto struk belanja untuk diekstrak AI atau catat pengeluaran manual tanpa struk.</p>
+        </div>
 
-      <div id="upload-alert" class="alert" role="alert" hidden></div>
-
-      <div class="card" id="upload-card">
-        <form id="upload-form" novalidate>
-          <div
-            id="dropzone"
-            class="dropzone"
-            tabindex="0"
-            role="button"
-            aria-label="Klik atau tarik dan lepas foto struk belanja di sini"
+        <div class="entry-mode-switch" role="group" aria-label="Mode Pencatatan Pengeluaran">
+          <button
+            type="button"
+            id="btn-mode-scan"
+            class="mode-switch-btn active"
+            aria-pressed="true"
           >
-            <input
-              type="file"
-              id="receipt-file-input"
-              name="file"
-              accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-              hidden
-            >
-            <div id="dropzone-prompt" class="dropzone-prompt">
-              <div class="dropzone-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-              </div>
-              <p class="dropzone-title">Klik untuk memilih foto struk atau tarik &amp; lepas ke sini</p>
-              <p class="dropzone-hint">Format didukung: JPG, JPEG, PNG &bull; Ukuran maksimal 5 MB</p>
-            </div>
-
-            <div id="thumbnail-container" class="thumbnail-preview" hidden>
-              <img id="receipt-thumbnail" src="" alt="Pratinjau foto struk belanja">
-              <div class="thumbnail-meta">
-                <p id="selected-file-name" class="file-name"></p>
-                <p id="selected-file-size" class="file-size"></p>
-              </div>
-            </div>
-          </div>
-
-          <div class="upload-actions">
-            <button type="submit" id="btn-extract" class="btn btn-primary" disabled>
-              Ekstrak Isi Struk
-            </button>
-            <button type="button" id="btn-clear-file" class="btn btn-secondary" hidden>
-              Pilih Gambar Lain
-            </button>
-          </div>
-
-          <div id="upload-loading" class="loading-box" aria-live="polite" hidden>
-            <span class="spinner" aria-hidden="true"></span>
-            <div>
-              <strong>Menganalisis struk...</strong>
-              <p>Mohon tunggu, AI sedang membaca tanggal dan daftar barang belanja Anda.</p>
-            </div>
-          </div>
-        </form>
+            Scan Foto Struk (AI)
+          </button>
+          <button
+            type="button"
+            id="btn-mode-manual"
+            class="mode-switch-btn"
+            aria-pressed="false"
+          >
+            Input Manual
+          </button>
+        </div>
       </div>
 
-      <!-- Editable Preview Card (muncul hanya setelah ekstraksi berhasil) -->
-      <div class="card preview-card" id="preview-section" hidden>
-        <div class="preview-header">
-          <div>
-            <h3>Pratinjau &amp; Verifikasi Hasil Ekstraksi</h3>
-            <p>Periksa dan koreksi tanggal, nama barang, atau harga sebelum menekan <strong>Konfirmasi &amp; Simpan</strong>.</p>
+      <!-- SUB-MODE A: SCAN FOTO STRUK (AI) -->
+      <div id="scan-mode-container">
+        <div id="upload-alert" class="alert" role="alert" hidden></div>
+
+        <div class="card" id="upload-card">
+          <form id="upload-form" novalidate>
+            <div
+              id="dropzone"
+              class="dropzone"
+              tabindex="0"
+              role="button"
+              aria-label="Klik atau tarik dan lepas foto struk belanja di sini"
+            >
+              <input
+                type="file"
+                id="receipt-file-input"
+                name="file"
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                hidden
+              >
+              <div id="dropzone-prompt" class="dropzone-prompt">
+                <div class="dropzone-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                </div>
+                <p class="dropzone-title">Klik untuk memilih foto struk atau tarik &amp; lepas ke sini</p>
+                <p class="dropzone-hint">Format didukung: JPG, JPEG, PNG &bull; Ukuran maksimal 5 MB</p>
+              </div>
+
+              <div id="thumbnail-container" class="thumbnail-preview" hidden>
+                <img id="receipt-thumbnail" src="" alt="Pratinjau foto struk belanja">
+                <div class="thumbnail-meta">
+                  <p id="selected-file-name" class="file-name"></p>
+                  <p id="selected-file-size" class="file-size"></p>
+                </div>
+              </div>
+            </div>
+
+            <div class="upload-actions">
+              <button type="submit" id="btn-extract" class="btn btn-primary" disabled>
+                Ekstrak Isi Struk
+              </button>
+              <button type="button" id="btn-clear-file" class="btn btn-secondary" hidden>
+                Pilih Gambar Lain
+              </button>
+            </div>
+
+            <div id="upload-loading" class="loading-box" aria-live="polite" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <div>
+                <strong>Menganalisis struk...</strong>
+                <p>Mohon tunggu, AI sedang membaca tanggal, barang, harga, dan kategori belanja Anda.</p>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Editable Preview Card (muncul hanya setelah ekstraksi berhasil) -->
+        <div class="card preview-card" id="preview-section" hidden>
+          <div class="preview-header">
+            <div>
+              <h3>Pratinjau &amp; Verifikasi Hasil Ekstraksi</h3>
+              <p>Periksa dan koreksi tanggal, nama barang, kategori, atau harga sebelum menekan <strong>Konfirmasi &amp; Simpan</strong>.</p>
+            </div>
+            <span class="badge badge-info">Belum Tersimpan</span>
           </div>
-          <span class="badge badge-info">Belum Tersimpan</span>
-        </div>
 
-        <div id="preview-warning-banner" class="alert alert-warning" role="alert" hidden></div>
-        <div id="preview-validation-alert" class="alert alert-error" role="alert" hidden></div>
+          <div id="preview-warning-banner" class="alert alert-warning" role="alert" hidden></div>
+          <div id="preview-validation-alert" class="alert alert-error" role="alert" hidden></div>
 
-        <div class="form-group preview-date-group">
-          <label for="preview-date-input">Tanggal Transaksi <span class="required">*</span></label>
-          <input type="date" id="preview-date-input" class="form-control" required>
-          <small id="preview-date-help" class="field-hint">Format YYYY-MM-DD sesuai tanggal pada struk.</small>
-        </div>
+          <div class="form-group preview-date-group">
+            <label for="preview-date-input">Tanggal Transaksi <span class="required">*</span></label>
+            <input type="date" id="preview-date-input" class="form-control" required>
+            <small id="preview-date-help" class="field-hint">Format YYYY-MM-DD sesuai tanggal pada struk.</small>
+          </div>
 
-        <div class="table-responsive">
-          <table class="data-table preview-table">
-            <thead>
-              <tr>
-                <th class="col-num">#</th>
-                <th>Nama Barang <span class="required">*</span></th>
-                <th class="col-price-input">Harga (Rp) <span class="required">*</span></th>
-                <th class="col-action-sm">Aksi</th>
-              </tr>
-            </thead>
-            <tbody id="preview-items-tbody"></tbody>
-          </table>
-        </div>
+          <div class="table-responsive">
+            <table class="data-table preview-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th>Nama Barang <span class="required">*</span></th>
+                  <th class="col-category-input">Kategori <span class="required">*</span></th>
+                  <th class="col-price-input">Harga (Rp) <span class="required">*</span></th>
+                  <th class="col-action-sm">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="preview-items-tbody"></tbody>
+            </table>
+          </div>
 
-        <div class="preview-toolbar">
-          <button type="button" id="btn-add-preview-row" class="btn btn-outline">
-            + Tambah Barang
-          </button>
-          <div class="preview-subtotal">
-            Estimasi Total Preview: <strong id="preview-total-display">Rp 0</strong>
+          <div class="preview-toolbar">
+            <button type="button" id="btn-add-preview-row" class="btn btn-outline">
+              + Tambah Barang
+            </button>
+            <div class="preview-subtotal">
+              Estimasi Total Preview: <strong id="preview-total-display">Rp 0</strong>
+            </div>
+          </div>
+
+          <div class="preview-footer-actions">
+            <button type="button" id="btn-cancel-preview" class="btn btn-secondary">
+              Batal / Upload Ulang
+            </button>
+            <button type="button" id="btn-save-transaction" class="btn btn-primary">
+              Konfirmasi &amp; Simpan
+            </button>
           </div>
         </div>
+      </div>
 
-        <div class="preview-footer-actions">
-          <button type="button" id="btn-cancel-preview" class="btn btn-secondary">
-            Batal / Upload Ulang
-          </button>
-          <button type="button" id="btn-save-transaction" class="btn btn-primary">
-            Konfirmasi &amp; Simpan
-          </button>
+      <!-- SUB-MODE B: INPUT MANUAL TANPA STRUK -->
+      <div id="manual-mode-container" hidden>
+        <div class="card preview-card" id="manual-entry-card">
+          <div class="preview-header">
+            <div>
+              <h3>Input Pengeluaran Manual</h3>
+              <p>Catat pengeluaran tanpa struk fisik (misal parkir, transportasi, jajan tunai) lalu tekan <strong>Konfirmasi &amp; Simpan</strong>.</p>
+            </div>
+            <span class="badge badge-manual">Tanpa Struk</span>
+          </div>
+
+          <div id="manual-validation-alert" class="alert alert-error" role="alert" hidden></div>
+
+          <form id="manual-entry-form" novalidate>
+            <div class="form-group preview-date-group">
+              <label for="manual-date-input">Tanggal Transaksi <span class="required">*</span></label>
+              <input type="date" id="manual-date-input" class="form-control" required>
+              <small class="field-hint">Default tanggal hari ini (format YYYY-MM-DD).</small>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table preview-table">
+                <thead>
+                  <tr>
+                    <th class="col-num">#</th>
+                    <th>Nama Barang / Pengeluaran <span class="required">*</span></th>
+                    <th class="col-category-input">Kategori <span class="required">*</span></th>
+                    <th class="col-price-input">Harga (Rp) <span class="required">*</span></th>
+                    <th class="col-action-sm">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="manual-items-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="preview-toolbar">
+              <button type="button" id="btn-add-manual-row" class="btn btn-outline">
+                + Tambah Baris
+              </button>
+              <div class="preview-subtotal">
+                Estimasi Total Input: <strong id="manual-total-display">Rp 0</strong>
+              </div>
+            </div>
+
+            <div class="preview-footer-actions">
+              <button type="button" id="btn-reset-manual" class="btn btn-secondary">
+                Reset Form
+              </button>
+              <button type="submit" id="btn-save-manual-transaction" class="btn btn-primary">
+                Konfirmasi &amp; Simpan
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </section>
@@ -196,7 +277,7 @@
     >
       <div class="section-header">
         <h2>Riwayat Pengeluaran</h2>
-        <p>Telusuri, cari, koreksi, atau hapus catatan barang yang telah tersimpan.</p>
+        <p>Telusuri, cari, filter per kategori, koreksi, atau hapus catatan barang yang telah tersimpan.</p>
       </div>
 
       <div id="history-alert" class="alert" role="alert" hidden></div>
@@ -212,6 +293,12 @@
               placeholder="Ketik nama barang (mis. Indomie, Kopi)..."
               autocomplete="off"
             >
+          </div>
+          <div class="form-group">
+            <label for="history-category-select">Kategori</label>
+            <select id="history-category-select" class="form-control">
+              <option value="">Semua Kategori</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="history-month-select">Bulan</label>
@@ -257,7 +344,7 @@
 
         <div id="history-empty-state" class="empty-state" hidden>
           <p class="empty-title" id="history-empty-title">Belum ada catatan transaksi</p>
-          <p class="empty-desc" id="history-empty-desc">Unggah foto struk belanja pertama Anda melalui tab Upload &amp; Preview.</p>
+          <p class="empty-desc" id="history-empty-desc">Unggah foto struk belanja atau catat manual melalui tab Catat Pengeluaran.</p>
         </div>
 
         <div id="history-table-wrapper" class="table-responsive" hidden>
@@ -266,6 +353,7 @@
               <tr>
                 <th>Tanggal</th>
                 <th>Nama Barang</th>
+                <th>Kategori</th>
                 <th class="text-right">Harga</th>
                 <th class="col-actions">Aksi</th>
               </tr>
@@ -289,7 +377,7 @@
       <div class="section-header summary-top-bar">
         <div>
           <h2>Ringkasan Pengeluaran Bulanan</h2>
-          <p>Rekapitulasi deterministik total pengeluaran, jumlah barang, dan tren harian.</p>
+          <p>Rekapitulasi deterministik total pengeluaran, jumlah barang, rincian kategori, dan tren harian.</p>
         </div>
 
         <div class="summary-period-picker">
@@ -340,10 +428,27 @@
 
       <div id="summary-empty-state" class="card empty-state" hidden>
         <p class="empty-title">Belum ada pengeluaran tercatat pada bulan ini</p>
-        <p class="empty-desc">Pilih bulan/tahun lain atau unggah struk belanja baru untuk melihat grafik dan rincian harian.</p>
+        <p class="empty-desc">Pilih bulan/tahun lain atau catat pengeluaran baru untuk melihat rincian kategori dan grafik harian.</p>
       </div>
 
       <div id="summary-content" hidden>
+        <div class="card">
+          <h3>Rincian Pengeluaran per Kategori</h3>
+          <p class="chart-subtitle">Urutan kategori dari pengeluaran terbesar pada bulan terpilih</p>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Kategori</th>
+                  <th class="text-right">Jumlah Barang</th>
+                  <th class="text-right">Subtotal Kategori</th>
+                </tr>
+              </thead>
+              <tbody id="summary-category-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="card chart-card">
           <h3>Grafik Pengeluaran Harian</h3>
           <p class="chart-subtitle">Subtotal belanja per tanggal transaksi pada bulan terpilih</p>
@@ -390,6 +495,11 @@
         <div class="form-group">
           <label for="edit-item-name">Nama Barang <span class="required">*</span></label>
           <input type="text" id="edit-item-name" class="form-control" maxlength="200" required>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-item-category">Kategori <span class="required">*</span></label>
+          <select id="edit-item-category" class="form-control" required></select>
         </div>
 
         <div class="form-group">

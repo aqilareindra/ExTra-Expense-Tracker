@@ -52,6 +52,7 @@
     const loadingEl = document.getElementById("summary-loading");
     const emptyStateEl = document.getElementById("summary-empty-state");
     const summaryContentEl = document.getElementById("summary-content");
+    const categoryTbody = document.getElementById("summary-category-tbody");
     const chartContainer = document.getElementById("summary-chart-container");
     const dailyTbody = document.getElementById("summary-daily-tbody");
 
@@ -210,6 +211,51 @@
       chartContainer.appendChild(svg);
     }
 
+    function renderCategoryTable(categoryBreakdown, totalMonthlyExpense) {
+      categoryTbody.replaceChildren();
+      const maxTotal = Number(totalMonthlyExpense) || 0;
+
+      categoryBreakdown.forEach((entry) => {
+        const tr = document.createElement("tr");
+
+        const tdCategory = document.createElement("td");
+        const wrap = document.createElement("div");
+        wrap.className = "category-share-wrap";
+
+        const badge = document.createElement("span");
+        badge.className = "badge badge-category";
+        badge.textContent = entry.category;
+        wrap.appendChild(badge);
+
+        const track = document.createElement("div");
+        track.className = "category-bar-track";
+        const fill = document.createElement("div");
+        fill.className = "category-bar-fill";
+        const widthPct =
+          maxTotal > 0
+            ? Math.min(100, Math.max(2, ((Number(entry.total) || 0) / maxTotal) * 100))
+            : 0;
+        fill.style.width = `${widthPct.toFixed(1)}%`;
+        track.appendChild(fill);
+        wrap.appendChild(track);
+
+        tdCategory.appendChild(wrap);
+
+        const tdCount = document.createElement("td");
+        tdCount.className = "text-right";
+        tdCount.textContent = `${entry.item_count} barang`;
+
+        const tdTotal = document.createElement("td");
+        tdTotal.className = "text-right";
+        const strongTotal = document.createElement("strong");
+        strongTotal.textContent = ExTraUI.formatRupiah(entry.total);
+        tdTotal.appendChild(strongTotal);
+
+        tr.append(tdCategory, tdCount, tdTotal);
+        categoryTbody.appendChild(tr);
+      });
+    }
+
     function renderDailyTable(dailyBreakdown) {
       dailyTbody.replaceChildren();
       dailyBreakdown.forEach((entry) => {
@@ -259,12 +305,17 @@
         const breakdown = Array.isArray(summary.daily_breakdown)
           ? summary.daily_breakdown
           : [];
+        const categoryBreakdown = Array.isArray(summary.category_breakdown)
+          ? summary.category_breakdown
+          : [];
 
         if (breakdown.length === 0) {
+          categoryTbody.replaceChildren();
           chartContainer.replaceChildren();
           dailyTbody.replaceChildren();
           emptyStateEl.hidden = false;
         } else {
+          renderCategoryTable(categoryBreakdown, summary.total_expense);
           renderBarChart(breakdown);
           renderDailyTable(breakdown);
           summaryContentEl.hidden = false;

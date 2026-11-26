@@ -37,6 +37,17 @@
     "Des",
   ];
 
+  const EXPENSE_CATEGORIES = Object.freeze([
+    "Makanan & Minuman",
+    "Kebutuhan Pokok",
+    "Transportasi",
+    "Kesehatan & Perawatan",
+    "Tagihan & Utilitas",
+    "Hiburan & Belanja",
+    "Lainnya",
+  ]);
+  const DEFAULT_CATEGORY = "Lainnya";
+
   const idrNumberFormatter = new Intl.NumberFormat("id-ID", {
     maximumFractionDigits: 0,
   });
@@ -119,13 +130,16 @@
       });
     },
 
-    async getTransactions({ month, year, search } = {}) {
+    async getTransactions({ month, year, category, search } = {}) {
       const params = new URLSearchParams();
       if (month !== undefined && month !== null && String(month) !== "") {
         params.set("month", String(month));
       }
       if (year !== undefined && year !== null && String(year) !== "") {
         params.set("year", String(year));
+      }
+      if (category !== undefined && category !== null && String(category).trim() !== "") {
+        params.set("category", String(category).trim());
       }
       if (search !== undefined && search !== null && String(search).trim() !== "") {
         params.set("search", String(search).trim());
@@ -228,6 +242,49 @@
     return parsed;
   }
 
+  function normalizeCategory(rawCategory) {
+    const trimmed = String(rawCategory ?? "").trim();
+    return EXPENSE_CATEGORIES.includes(trimmed) ? trimmed : DEFAULT_CATEGORY;
+  }
+
+  function isValidCategory(rawCategory) {
+    const trimmed = String(rawCategory ?? "").trim();
+    return EXPENSE_CATEGORIES.includes(trimmed);
+  }
+
+  function populateCategorySelect(selectEl, selectedValue = DEFAULT_CATEGORY, includeAllOption = false) {
+    if (!selectEl) return;
+    selectEl.replaceChildren();
+
+    if (includeAllOption) {
+      const allOpt = document.createElement("option");
+      allOpt.value = "";
+      allOpt.textContent = "Semua Kategori";
+      selectEl.appendChild(allOpt);
+    }
+
+    EXPENSE_CATEGORIES.forEach((cat) => {
+      const opt = document.createElement("option");
+      opt.value = cat;
+      opt.textContent = cat;
+      selectEl.appendChild(opt);
+    });
+
+    if (includeAllOption && (!selectedValue || !EXPENSE_CATEGORIES.includes(selectedValue))) {
+      selectEl.value = "";
+    } else {
+      selectEl.value = normalizeCategory(selectedValue);
+    }
+  }
+
+  function getTodayIsoDate() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
   function showAlert(element, message, variant = "error") {
     if (!element) return;
     element.className = `alert alert-${variant}`;
@@ -315,12 +372,18 @@
 
   window.ExTraApi = ExTraApi;
   window.ExTraUI = {
+    EXPENSE_CATEGORIES,
+    DEFAULT_CATEGORY,
     formatRupiah,
     formatFileSize,
     formatDateHuman,
     getMonthName,
     isValidIsoCalendarDate,
     parseStrictNonNegativeInt,
+    normalizeCategory,
+    isValidCategory,
+    populateCategorySelect,
+    getTodayIsoDate,
     showAlert,
     hideAlert,
     showToast,

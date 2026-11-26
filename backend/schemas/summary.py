@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from backend.schemas.categories import validate_strict_category
 from backend.schemas.transaction import (
     validate_iso_calendar_date,
     validate_strict_non_negative_price,
@@ -28,6 +29,24 @@ class DailyExpenseBreakdown(BaseModel):
         return validate_strict_non_negative_price(value)
 
 
+class CategoryExpenseBreakdown(BaseModel):
+    """Agregasi pengeluaran per kategori pada bulan dan tahun terpilih."""
+
+    category: str
+    total: int = Field(..., ge=0)
+    item_count: int = Field(..., ge=0)
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _check_category(cls, value: object) -> str:
+        return validate_strict_category(value)
+
+    @field_validator("total", "item_count", mode="before")
+    @classmethod
+    def _check_non_negative_int(cls, value: object) -> int:
+        return validate_strict_non_negative_price(value)
+
+
 class MonthlySummaryResponse(BaseModel):
     """Respons sukses untuk GET /api/summary/monthly sesuai Section 13 PRD."""
 
@@ -37,3 +56,4 @@ class MonthlySummaryResponse(BaseModel):
     total_expense: int = Field(..., ge=0)
     total_items: int = Field(..., ge=0)
     daily_breakdown: list[DailyExpenseBreakdown] = Field(default_factory=list)
+    category_breakdown: list[CategoryExpenseBreakdown] = Field(default_factory=list)
