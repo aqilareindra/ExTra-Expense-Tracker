@@ -178,6 +178,30 @@
         method: "GET",
       });
     },
+
+    getExportTransactionsUrl({ month, year, category, search } = {}) {
+      const params = new URLSearchParams();
+      if (month !== undefined && month !== null && String(month) !== "") {
+        params.set("month", String(month));
+      }
+      if (year !== undefined && year !== null && String(year) !== "") {
+        params.set("year", String(year));
+      }
+      if (category !== undefined && category !== null && String(category).trim() !== "") {
+        params.set("category", String(category).trim());
+      }
+      if (search !== undefined && search !== null && String(search).trim() !== "") {
+        params.set("search", String(search).trim());
+      }
+      const queryString = params.toString();
+      return queryString
+        ? `/api/transactions/export?${queryString}`
+        : "/api/transactions/export";
+    },
+
+    getTransactionReceiptUrl(transactionId) {
+      return `/api/transactions/${encodeURIComponent(transactionId)}/receipt`;
+    },
   };
 
   /**

@@ -55,7 +55,12 @@ class TestDatabaseSchemaAndIntegrity:
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(transactions);").fetchall()
             }
-            assert tx_cols == {"id", "transaction_date", "created_at"}
+            assert tx_cols == {
+                "id",
+                "transaction_date",
+                "receipt_image_path",
+                "created_at",
+            }
 
             item_cols = {
                 row["name"]
@@ -116,11 +121,29 @@ class TestDatabaseSchemaAndIntegrity:
         init_db(legacy_db)
         init_db(legacy_db)
 
+        migrated_conn = get_connection(legacy_db)
+        try:
+            tx_cols = {
+                row["name"]
+                for row in migrated_conn.execute(
+                    "PRAGMA table_info(transactions);"
+                ).fetchall()
+            }
+            assert "receipt_image_path" in tx_cols
+            raw_tx = migrated_conn.execute(
+                "SELECT receipt_image_path FROM transactions WHERE id = 1"
+            ).fetchone()
+            assert raw_tx["receipt_image_path"] is None
+        finally:
+            migrated_conn.close()
+
         migrated_items = transaction_service.get_transactions(db_path=legacy_db)
         assert len(migrated_items) == 2
-        assert [(it.name, it.price, it.category) for it in migrated_items] == [
-            ("Aqua 600ml", 4000, "Lainnya"),
-            ("Indomie Goreng", 3500, "Lainnya"),
+        assert [
+            (it.name, it.price, it.category, it.has_receipt) for it in migrated_items
+        ] == [
+            ("Aqua 600ml", 4000, "Lainnya", False),
+            ("Indomie Goreng", 3500, "Lainnya", False),
         ]
 
     def test_sqlite_check_and_foreign_key_constraints_enforced(

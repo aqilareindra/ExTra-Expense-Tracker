@@ -81,4 +81,8 @@ async def extract_receipt_endpoint(
             message=exc.message,
         )
 
-    return result
+    temp_token = await run_in_threadpool(
+        image_service.save_temp_receipt_image,
+        compressed_bytes,
+    )
+    return result.model_copy(update={"temp_image_token": temp_token})

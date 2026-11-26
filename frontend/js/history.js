@@ -14,6 +14,7 @@
 
     const historyAlert = document.getElementById("history-alert");
     const countLabel = document.getElementById("history-count-label");
+    const exportCsvBtn = document.getElementById("btn-export-csv");
     const loadingEl = document.getElementById("history-loading");
     const emptyStateEl = document.getElementById("history-empty-state");
     const emptyTitleEl = document.getElementById("history-empty-title");
@@ -40,6 +41,15 @@
     const closeDeleteBtn = document.getElementById("btn-close-delete-modal");
     const cancelDeleteBtn = document.getElementById("btn-cancel-delete-modal");
     const confirmDeleteBtn = document.getElementById("btn-confirm-delete-modal");
+
+    // Receipt Viewer Modal Elements
+    const receiptBackdrop = document.getElementById("receipt-modal-backdrop");
+    const receiptSubtitleEl = document.getElementById("receipt-modal-subtitle");
+    const receiptErrorEl = document.getElementById("receipt-modal-error");
+    const receiptViewerBox = document.getElementById("receipt-viewer-box");
+    const receiptImgEl = document.getElementById("receipt-modal-image");
+    const closeReceiptBtn = document.getElementById("btn-close-receipt-modal");
+    const dismissReceiptBtn = document.getElementById("btn-dismiss-receipt-modal");
 
     let searchDebounceTimer = null;
     let isSubmittingEdit = false;
@@ -131,6 +141,46 @@
       deleteBackdrop.hidden = true;
     }
 
+    function openReceiptModal(item) {
+      if (!receiptBackdrop || !receiptImgEl) return;
+      receiptErrorEl.hidden = true;
+      receiptViewerBox.hidden = false;
+      receiptSubtitleEl.textContent =
+        `Transaksi #${item.transaction_id} • ${ExTraUI.formatDateHuman(item.date)}`;
+
+      receiptImgEl.onload = () => {
+        receiptErrorEl.hidden = true;
+        receiptViewerBox.hidden = false;
+      };
+      receiptImgEl.onerror = () => {
+        receiptViewerBox.hidden = true;
+        receiptErrorEl.hidden = false;
+      };
+
+      receiptImgEl.src = ExTraApi.getTransactionReceiptUrl(item.transaction_id);
+      receiptBackdrop.hidden = false;
+      if (dismissReceiptBtn) dismissReceiptBtn.focus();
+    }
+
+    function closeReceiptModal() {
+      if (!receiptBackdrop) return;
+      receiptBackdrop.hidden = true;
+      if (receiptImgEl) {
+        receiptImgEl.onload = null;
+        receiptImgEl.onerror = null;
+        receiptImgEl.removeAttribute("src");
+      }
+    }
+
+    function getActiveFilterParams() {
+      return {
+        month: monthSelect.value || undefined,
+        year: yearSelect.value || undefined,
+        category: categorySelect.value || undefined,
+        search: (searchInput.value || "").trim() || undefined,
+      };
+    }
+
     function renderHistoryRows(items) {
       tbody.replaceChildren();
 
@@ -179,6 +229,15 @@
         editBtn.textContent = "Edit";
         editBtn.addEventListener("click", () => openEditModal(item));
 
+        if (item.has_receipt === true) {
+          const viewReceiptBtn = document.createElement("button");
+          viewReceiptBtn.type = "button";
+          viewReceiptBtn.className = "btn btn-sm btn-outline";
+          viewReceiptBtn.textContent = "Lihat Struk";
+          viewReceiptBtn.addEventListener("click", () => openReceiptModal(item));
+          actionsWrap.appendChild(viewReceiptBtn);
+        }
+
         const delItemBtn = document.createElement("button");
         delItemBtn.type = "button";
         delItemBtn.className = "btn btn-sm btn-ghost-danger";
@@ -210,12 +269,7 @@
       emptyStateEl.hidden = true;
       tableWrapper.hidden = true;
 
-      const filters = {
-        month: monthSelect.value || undefined,
-        year: yearSelect.value || undefined,
-        category: categorySelect.value || undefined,
-        search: (searchInput.value || "").trim() || undefined,
-      };
+      const filters = getActiveFilterParams();
 
       try {
         const response = await ExTraApi.getTransactions(filters);
@@ -282,6 +336,18 @@
       yearSelect.value = "";
       loadHistory();
     });
+
+    if (exportCsvBtn) {
+      exportCsvBtn.addEventListener("click", () => {
+        const exportUrl = ExTraApi.getExportTransactionsUrl(getActiveFilterParams());
+        const link = document.createElement("a");
+        link.href = exportUrl;
+        link.download = "";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      });
+    }
 
     // Edit Modal Listeners
     closeEditBtn.addEventListener("click", closeEditModal);
@@ -414,8 +480,19 @@
       if (event.key === "Escape") {
         if (!editBackdrop.hidden) closeEditModal();
         if (!deleteBackdrop.hidden) closeDeleteModal();
+        if (receiptBackdrop && !receiptBackdrop.hidden) closeReceiptModal();
       }
     });
+
+    if (closeReceiptBtn) closeReceiptBtn.addEventListener("click", closeReceiptModal);
+    if (dismissReceiptBtn) dismissReceiptBtn.addEventListener("click", closeReceiptModal);
+    if (receiptBackdrop) {
+      receiptBackdrop.addEventListener("click", (event) => {
+        if (event.target === receiptBackdrop) {
+          closeReceiptModal();
+        }
+      });
+    }
 
     // Sinkronisasi otomatis lintas tab
     document.addEventListener("extra:data-changed", () => {

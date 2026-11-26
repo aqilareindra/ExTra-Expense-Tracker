@@ -135,6 +135,41 @@ class TestTransactionCreateRequest:
                 }
             )
 
+    def test_temp_image_token_accepts_none_or_valid_uuid_and_rejects_traversal(
+        self,
+    ) -> None:
+        req_none = TransactionCreateRequest(
+            date="2026-11-26",
+            items=[TransactionItemCreate(name="Parkir", price=2000)],
+            temp_image_token=None,
+        )
+        assert req_none.temp_image_token is None
+
+        valid_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        req_valid = TransactionCreateRequest(
+            date="2026-11-26",
+            items=[TransactionItemCreate(name="Kopi", price=15000)],
+            temp_image_token=f"  {valid_uuid.upper()}  ",
+        )
+        assert req_valid.temp_image_token == valid_uuid
+
+        for bad_token in [
+            "",
+            "   ",
+            "../../.env",
+            "..\\secret.jpg",
+            "550e8400-e29b-41d4-a716-446655440000/extra",
+            "550e8400e29b41d4a716446655440000",
+            "bukan-uuid",
+            12345,
+        ]:
+            with pytest.raises(ValidationError):
+                TransactionCreateRequest(
+                    date="2026-11-26",
+                    items=[TransactionItemCreate(name="Kopi", price=15000)],
+                    temp_image_token=bad_token,  # type: ignore[arg-type]
+                )
+
 
 class TestItemUpdateRequest:
     """Pengujian aturan validasi pada ItemUpdateRequest."""
@@ -287,6 +322,7 @@ class TestReceiptExtractionSchemas:
                 ],
             },
             "warnings": [],
+            "temp_image_token": None,
         }
 
     @pytest.mark.parametrize(

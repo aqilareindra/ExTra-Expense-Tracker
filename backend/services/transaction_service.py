@@ -1,4 +1,4 @@
-"""Layanan CRUD SQLite, pencarian, dan filter riwayat transaksi ExTra."""
+"""Layanan CRUD SQLite, pencarian, filter riwayat, dan sinkronisasi arsip foto struk ExTra."""
 
 from pathlib import Path
 import sqlite3
@@ -11,6 +11,7 @@ from backend.schemas.transaction import (
     TransactionCreateRequest,
     TransactionItemRecord,
 )
+from backend.services import image_service
 
 
 def _row_to_item_record(row: sqlite3.Row) -> TransactionItemRecord:
@@ -22,6 +23,7 @@ def _row_to_item_record(row: sqlite3.Row) -> TransactionItemRecord:
         name=str(row["name"]),
         category=str(row["category"]),
         price=int(row["price"]),
+        has_receipt=bool(row["has_receipt"]),
         created_at=str(row["created_at"]),
     )
 
@@ -39,51 +41,75 @@ def create_transaction(
     payload: TransactionCreateRequest,
     db_path: str | Path | None = None,
 ) -> TransactionCreatedData:
-    """Simpan header transactions dan seluruh transaction_items secara atomik."""
-    with db_transaction(db_path) as conn:
-        header_cursor = conn.execute(
-            "INSERT INTO transactions (transaction_date) VALUES (?)",
-            (payload.date,),
-        )
-        transaction_id = int(header_cursor.lastrowid)
-
-        conn.executemany(
-            """
-            INSERT INTO transaction_items (transaction_id, item_name, category, price)
-            VALUES (?, ?, ?, ?)
-            """,
-            [
-                (transaction_id, item.name, item.category, item.price)
-                for item in payload.items
-            ],
+    """Simpan header transactions, transaction_items, serta arsip foto struk jika ada."""
+    archived_filename: str | None = None
+    if payload.temp_image_token is not None:
+        archived_filename = image_service.promote_temp_receipt_to_archive(
+            payload.temp_image_token
         )
 
-        tx_row = conn.execute(
-            "SELECT id, transaction_date, created_at FROM transactions WHERE id = ?",
-            (transaction_id,),
-        ).fetchone()
+    try:
+        with db_transaction(db_path) as conn:
+            header_cursor = conn.execute(
+                "INSERT INTO transactions (transaction_date, receipt_image_path) VALUES (?, ?)",
+                (payload.date, archived_filename),
+            )
+            transaction_id = int(header_cursor.lastrowid)
 
-        item_rows = conn.execute(
-            """
-            SELECT
-                ti.id AS id,
-                ti.transaction_id AS transaction_id,
-                t.transaction_date AS date,
-                ti.item_name AS name,
-                ti.category AS category,
-                ti.price AS price,
-                t.created_at AS created_at
-            FROM transaction_items ti
-            JOIN transactions t ON t.id = ti.transaction_id
-            WHERE ti.transaction_id = ?
-            ORDER BY ti.id ASC
-            """,
-            (transaction_id,),
-        ).fetchall()
+            conn.executemany(
+                """
+                INSERT INTO transaction_items (transaction_id, item_name, category, price)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (transaction_id, item.name, item.category, item.price)
+                    for item in payload.items
+                ],
+            )
+
+            tx_row = conn.execute(
+                """
+                SELECT
+                    id,
+                    transaction_date,
+                    receipt_image_path,
+                    created_at
+                FROM transactions
+                WHERE id = ?
+                """,
+                (transaction_id,),
+            ).fetchone()
+
+            item_rows = conn.execute(
+                """
+                SELECT
+                    ti.id AS id,
+                    ti.transaction_id AS transaction_id,
+                    t.transaction_date AS date,
+                    ti.item_name AS name,
+                    ti.category AS category,
+                    ti.price AS price,
+                    (
+                        t.receipt_image_path IS NOT NULL
+                        AND length(trim(t.receipt_image_path)) > 0
+                    ) AS has_receipt,
+                    t.created_at AS created_at
+                FROM transaction_items ti
+                JOIN transactions t ON t.id = ti.transaction_id
+                WHERE ti.transaction_id = ?
+                ORDER BY ti.id ASC
+                """,
+                (transaction_id,),
+            ).fetchall()
+    except Exception:
+        if archived_filename is not None:
+            image_service.delete_archived_receipt_file(archived_filename)
+        raise
 
     return TransactionCreatedData(
         transaction_id=int(tx_row["id"]),
         date=str(tx_row["transaction_date"]),
+        has_receipt=bool(tx_row["receipt_image_path"]),
         created_at=str(tx_row["created_at"]),
         items=[_row_to_item_record(row) for row in item_rows],
     )
@@ -134,6 +160,10 @@ def get_transactions(
             ti.item_name AS name,
             ti.category AS category,
             ti.price AS price,
+            (
+                t.receipt_image_path IS NOT NULL
+                AND length(trim(t.receipt_image_path)) > 0
+            ) AS has_receipt,
             t.created_at AS created_at
         FROM transaction_items ti
         JOIN transactions t ON t.id = ti.transaction_id
@@ -150,6 +180,30 @@ def get_transactions(
     return [_row_to_item_record(row) for row in rows]
 
 
+def get_transaction_receipt_filename(
+    transaction_id: int,
+    db_path: str | Path | None = None,
+) -> str | None:
+    """Ambil nama file arsip struk milik transaksi tertentu, atau None jika tidak ada."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT receipt_image_path FROM transactions WHERE id = ?",
+            (transaction_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    stored = row["receipt_image_path"]
+    if not isinstance(stored, str):
+        return None
+    trimmed = stored.strip()
+    return trimmed or None
+
+
 def update_item(
     item_id: int,
     payload: ItemUpdateRequest,
@@ -158,7 +212,7 @@ def update_item(
     """Perbarui nama, harga, kategori, dan/atau tanggal transaksi sebuah item.
 
     Jika tanggal diubah pada item dalam transaksi multi-item, item dipindahkan ke
-    record transactions baru agar tanggal item lain pada transaksi asal tetap utuh.
+    record transactions baru tanpa menghapus arsip struk pada transaksi induknya.
     """
     with db_transaction(db_path) as conn:
         existing = conn.execute(
@@ -203,7 +257,7 @@ def update_item(
 
             if sibling_count > 1:
                 new_tx_cursor = conn.execute(
-                    "INSERT INTO transactions (transaction_date) VALUES (?)",
+                    "INSERT INTO transactions (transaction_date, receipt_image_path) VALUES (?, NULL)",
                     (payload.date,),
                 )
                 target_tx_id = int(new_tx_cursor.lastrowid)
@@ -231,6 +285,10 @@ def update_item(
                 ti.item_name AS name,
                 ti.category AS category,
                 ti.price AS price,
+                (
+                    t.receipt_image_path IS NOT NULL
+                    AND length(trim(t.receipt_image_path)) > 0
+                ) AS has_receipt,
                 t.created_at AS created_at
             FROM transaction_items ti
             JOIN transactions t ON t.id = ti.transaction_id
@@ -246,7 +304,9 @@ def delete_item(
     item_id: int,
     db_path: str | Path | None = None,
 ) -> dict[str, int | bool] | None:
-    """Hapus satu item berdasarkan item_id dan bersihkan transaksi yatim (orphan cleanup)."""
+    """Hapus satu item dan bersihkan transaksi yatim beserta file arsip struknya."""
+    receipt_to_delete: str | None = None
+
     with db_transaction(db_path) as conn:
         existing = conn.execute(
             "SELECT id, transaction_id FROM transaction_items WHERE id = ?",
@@ -266,8 +326,17 @@ def delete_item(
 
         orphan_deleted = False
         if int(remaining_row["cnt"]) == 0:
+            tx_row = conn.execute(
+                "SELECT receipt_image_path FROM transactions WHERE id = ?",
+                (tx_id,),
+            ).fetchone()
+            if tx_row is not None and isinstance(tx_row["receipt_image_path"], str):
+                receipt_to_delete = tx_row["receipt_image_path"].strip() or None
             conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
             orphan_deleted = True
+
+    if orphan_deleted and receipt_to_delete is not None:
+        image_service.delete_archived_receipt_file(receipt_to_delete)
 
     return {
         "deleted_item_id": item_id,
@@ -280,10 +349,27 @@ def delete_transaction(
     transaction_id: int,
     db_path: str | Path | None = None,
 ) -> bool:
-    """Hapus transaksi beserta seluruh item terkait via ON DELETE CASCADE."""
+    """Hapus transaksi, seluruh item via CASCADE, dan file arsip struk terkait."""
+    receipt_to_delete: str | None = None
+
     with db_transaction(db_path) as conn:
+        tx_row = conn.execute(
+            "SELECT receipt_image_path FROM transactions WHERE id = ?",
+            (transaction_id,),
+        ).fetchone()
+        if tx_row is None:
+            return False
+
+        if isinstance(tx_row["receipt_image_path"], str):
+            receipt_to_delete = tx_row["receipt_image_path"].strip() or None
+
         cursor = conn.execute(
             "DELETE FROM transactions WHERE id = ?",
             (transaction_id,),
         )
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+
+    if deleted and receipt_to_delete is not None:
+        image_service.delete_archived_receipt_file(receipt_to_delete)
+
+    return deleted

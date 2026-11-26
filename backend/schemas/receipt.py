@@ -83,3 +83,4 @@ class ReceiptExtractResponse(BaseModel):
     status: Literal["success"] = "success"
     data: ReceiptPreviewData
     warnings: list[str] = Field(default_factory=list)
+    temp_image_token: Optional[str] = None

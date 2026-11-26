@@ -11,6 +11,7 @@ _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     transaction_date TEXT NOT NULL,
+    receipt_image_path TEXT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -57,6 +58,15 @@ def db_transaction(db_path: str | Path | None = None) -> Iterator[sqlite3.Connec
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Jalankan migrasi skema backward-compatible untuk database lama (v1.0.0 -> v1.1)."""
+    tx_columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(transactions);").fetchall()
+    }
+    if "receipt_image_path" not in tx_columns:
+        conn.execute(
+            "ALTER TABLE transactions ADD COLUMN receipt_image_path TEXT NULL;"
+        )
+
     item_columns = {
         str(row["name"])
         for row in conn.execute("PRAGMA table_info(transaction_items);").fetchall()

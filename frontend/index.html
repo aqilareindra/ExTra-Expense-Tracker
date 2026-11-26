@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ExTra — Expense Tracker Berbasis AI</title>
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/styles.css?v=1.1.0">
 </head>
 <body>
   <header class="app-header">
@@ -197,6 +197,14 @@
             </div>
           </div>
 
+          <div class="archive-option-row">
+            <label class="checkbox-label" for="preview-archive-checkbox">
+              <input type="checkbox" id="preview-archive-checkbox" checked>
+              <span>Simpan arsip foto struk</span>
+            </label>
+            <small class="field-hint">Menyimpan salinan foto struk terkompresi agar dapat dilihat kembali di Riwayat.</small>
+          </div>
+
           <div class="preview-footer-actions">
             <button type="button" id="btn-cancel-preview" class="btn btn-secondary">
               Batal / Upload Ulang
@@ -335,6 +343,11 @@
       <div class="card">
         <div class="card-subheader">
           <span id="history-count-label" class="muted-label">Memuat data...</span>
+          <div class="subheader-actions">
+            <button type="button" id="btn-export-csv" class="btn btn-outline btn-sm">
+              Ekspor CSV
+            </button>
+          </div>
         </div>
 
         <div id="history-loading" class="loading-inline" hidden>
@@ -534,9 +547,33 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/upload.js"></script>
-  <script src="/js/history.js"></script>
-  <script src="/js/summary.js"></script>
+  <!-- ===================================================================== -->
+  <!-- MODAL LIHAT FOTO STRUK                                                -->
+  <!-- ===================================================================== -->
+  <div id="receipt-modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <h3 id="receipt-modal-title">Arsip Foto Struk</h3>
+        <button type="button" id="btn-close-receipt-modal" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="receipt-modal-subtitle" class="muted-label"></p>
+        <div id="receipt-modal-error" class="alert alert-error" role="alert" hidden>
+          Gagal memuat arsip foto struk. File mungkin sudah dihapus atau tidak tersedia.
+        </div>
+        <div id="receipt-viewer-box" class="receipt-viewer-box">
+          <img id="receipt-modal-image" src="" alt="Arsip foto struk belanja">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-dismiss-receipt-modal" class="btn btn-secondary">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js?v=1.1.0"></script>
+  <script src="/js/upload.js?v=1.1.0"></script>
+  <script src="/js/history.js?v=1.1.0"></script>
+  <script src="/js/summary.js?v=1.1.0"></script>
 </body>
 </html>

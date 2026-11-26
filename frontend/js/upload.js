@@ -39,6 +39,7 @@
     const previewDateHelp = document.getElementById("preview-date-help");
     const previewTbody = document.getElementById("preview-items-tbody");
     const previewTotalDisplay = document.getElementById("preview-total-display");
+    const previewArchiveCheckbox = document.getElementById("preview-archive-checkbox");
 
     const btnAddRow = document.getElementById("btn-add-preview-row");
     const btnCancelPreview = document.getElementById("btn-cancel-preview");
@@ -56,12 +57,16 @@
 
     let selectedFile = null;
     let currentObjectUrl = null;
+    let currentTempImageToken = null;
     let isExtracting = false;
     let isSavingPreview = false;
     let isSavingManual = false;
 
     function switchEntryMode(mode) {
       const isManual = mode === "manual";
+      if (isManual) {
+        currentTempImageToken = null;
+      }
       btnModeScan.classList.toggle("active", !isManual);
       btnModeScan.setAttribute("aria-pressed", isManual ? "false" : "true");
       btnModeManual.classList.toggle("active", isManual);
@@ -307,12 +312,16 @@
     }
 
     function resetPreviewSection() {
+      currentTempImageToken = null;
       previewSection.hidden = true;
       previewTbody.replaceChildren();
       previewDateInput.value = "";
       previewDateInput.classList.remove("input-invalid", "input-warning");
       previewDateHelp.textContent = "Format YYYY-MM-DD sesuai tanggal pada struk.";
       previewDateHelp.classList.remove("text-danger");
+      if (previewArchiveCheckbox) {
+        previewArchiveCheckbox.checked = true;
+      }
       ExTraUI.hideAlert(previewWarningBanner);
       ExTraUI.hideAlert(previewValidationAlert);
       previewTotalDisplay.textContent = "Rp 0";
@@ -338,8 +347,13 @@
         : "Konfirmasi & Simpan";
     }
 
-    function openPreviewTable(extractedData, warnings) {
+    function openPreviewTable(extractedData, warnings, tempImageToken = null) {
       resetPreviewSection();
+      currentTempImageToken = tempImageToken || null;
+      if (previewArchiveCheckbox) {
+        previewArchiveCheckbox.checked = Boolean(currentTempImageToken);
+        previewArchiveCheckbox.disabled = !currentTempImageToken;
+      }
 
       const dateVal = extractedData && extractedData.date ? extractedData.date : "";
       previewDateInput.value = dateVal;
@@ -491,7 +505,7 @@
 
       try {
         const result = await ExTraApi.extractReceipt(selectedFile);
-        openPreviewTable(result.data, result.warnings);
+        openPreviewTable(result.data, result.warnings, result.temp_image_token);
       } catch (err) {
         ExTraUI.showAlert(
           uploadAlert,
@@ -538,10 +552,18 @@
 
       setSavingPreviewState(true);
       try {
-        const created = await ExTraApi.createTransaction({
+        const savePayload = {
           date: validation.date,
           items: validation.items,
-        });
+        };
+        if (
+          previewArchiveCheckbox &&
+          previewArchiveCheckbox.checked &&
+          currentTempImageToken
+        ) {
+          savePayload.temp_image_token = currentTempImageToken;
+        }
+        const created = await ExTraApi.createTransaction(savePayload);
         const savedCount =
           created && created.data && Array.isArray(created.data.items)
             ? created.data.items.length

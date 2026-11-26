@@ -4,6 +4,7 @@ from collections.abc import Iterator
 import io
 from pathlib import Path
 from types import SimpleNamespace
+import uuid
 
 from fastapi.testclient import TestClient
 from google.genai import errors as genai_errors
@@ -23,9 +24,10 @@ from backend.services import ai_service
 
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Jalankan TestClient dengan database SQLite terisolasi tanpa menyentuh extra.db."""
+    """Jalankan TestClient dengan database & direktori uploads terisolasi di tmp_path."""
     test_db_file = tmp_path / "test_api.db"
     monkeypatch.setenv("DATABASE_PATH", str(test_db_file))
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads"))
     with TestClient(app) as api_client:
         yield api_client
 
@@ -279,7 +281,9 @@ def test_extract_receipt_success_jpeg_and_png_without_saving_to_db(
         files={"file": (filename, raw_bytes, mime_type)},
     )
     assert resp.status_code == 200
-    assert resp.json() == {
+    body = resp.json()
+    assert str(uuid.UUID(body["temp_image_token"])) == body["temp_image_token"]
+    assert body == {
         "status": "success",
         "data": {
             "date": "2026-11-24",
@@ -297,6 +301,7 @@ def test_extract_receipt_success_jpeg_and_png_without_saving_to_db(
             ],
         },
         "warnings": [],
+        "temp_image_token": body["temp_image_token"],
     }
     assert len(captured_calls) == 1
     sent_bytes, sent_mime = captured_calls[0]
@@ -862,7 +867,9 @@ def test_extract_receipt_compresses_large_rgba_png_and_recovers_from_transient_5
         files={"file": ("struk_besar.png", large_png_bytes, "image/png")},
     )
     assert resp.status_code == 200
-    assert resp.json() == {
+    body = resp.json()
+    assert str(uuid.UUID(body["temp_image_token"])) == body["temp_image_token"]
+    assert body == {
         "status": "success",
         "data": {
             "date": "2026-11-26",
@@ -871,6 +878,7 @@ def test_extract_receipt_compresses_large_rgba_png_and_recovers_from_transient_5
             ],
         },
         "warnings": [],
+        "temp_image_token": body["temp_image_token"],
     }
     assert attempt_counter == 2
     assert sleep_calls == [1.0]

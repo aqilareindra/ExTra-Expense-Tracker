@@ -3,6 +3,7 @@
 from datetime import date as calendar_date
 import re
 from typing import Literal
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -49,6 +50,22 @@ def validate_iso_calendar_date(value: object) -> str:
     return trimmed
 
 
+def validate_strict_uuid_token(value: object) -> str:
+    """Pastikan token arsip sementara berformat UUID kanonis tanpa karakter path."""
+    if not isinstance(value, str):
+        raise ValueError("Token gambar struk harus berupa string UUID yang valid.")
+    trimmed = value.strip()
+    if not trimmed or "/" in trimmed or "\\" in trimmed or ".." in trimmed:
+        raise ValueError("Format token gambar struk tidak valid.")
+    try:
+        parsed = uuid.UUID(trimmed)
+    except ValueError as exc:
+        raise ValueError("Format token gambar struk harus berupa UUID yang valid.") from exc
+    if trimmed.lower() != str(parsed):
+        raise ValueError("Format token gambar struk harus berupa UUID kanonis.")
+    return str(parsed)
+
+
 class TransactionItemCreate(BaseModel):
     """Skema input satu item barang saat menyimpan transaksi."""
 
@@ -81,11 +98,19 @@ class TransactionCreateRequest(BaseModel):
 
     date: str
     items: list[TransactionItemCreate] = Field(..., min_length=1)
+    temp_image_token: str | None = None
 
     @field_validator("date", mode="before")
     @classmethod
     def _check_date(cls, value: object) -> str:
         return validate_iso_calendar_date(value)
+
+    @field_validator("temp_image_token", mode="before")
+    @classmethod
+    def _check_temp_image_token(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return validate_strict_uuid_token(value)
 
 
 class ItemUpdateRequest(BaseModel):
@@ -149,6 +174,7 @@ class TransactionItemRecord(BaseModel):
     name: str
     category: str = DEFAULT_CATEGORY
     price: int
+    has_receipt: bool = False
     created_at: str
 
 
@@ -157,6 +183,7 @@ class TransactionCreatedData(BaseModel):
 
     transaction_id: int
     date: str
+    has_receipt: bool = False
     created_at: str
     items: list[TransactionItemRecord]
 
