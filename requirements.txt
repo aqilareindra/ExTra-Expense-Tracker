@@ -2,6 +2,7 @@ fastapi
 uvicorn
 google-genai
 pydantic
+Pillow
 python-dotenv
 python-multipart
 pytest

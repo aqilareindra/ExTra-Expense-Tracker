@@ -1,11 +1,13 @@
 """Integration & E2E lifecycle test endpoint FastAPI Milestone 1 s/d Milestone 6."""
 
 from collections.abc import Iterator
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from google.genai import errors as genai_errors
+from PIL import Image
 import pytest
 
 from backend import config as app_config
@@ -229,8 +231,15 @@ def test_delete_item_orphan_cleanup_and_delete_transaction_cascade(
 # Milestone 3: Integration Tests untuk POST /api/receipts/extract (Mock AI)
 # ---------------------------------------------------------------------------
 
-VALID_JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
-VALID_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+def _build_minimal_image_bytes(fmt: str) -> bytes:
+    """Buat bytes gambar 1x1 yang valid secara struktural untuk pengujian endpoint."""
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), (255, 255, 255)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+VALID_JPEG_BYTES = _build_minimal_image_bytes("JPEG")
+VALID_PNG_BYTES = _build_minimal_image_bytes("PNG")
 
 
 @pytest.mark.parametrize(
@@ -281,7 +290,10 @@ def test_extract_receipt_success_jpeg_and_png_without_saving_to_db(
         },
         "warnings": [],
     }
-    assert captured_calls == [(raw_bytes, mime_type)]
+    assert len(captured_calls) == 1
+    sent_bytes, sent_mime = captured_calls[0]
+    assert sent_mime == "image/jpeg"
+    assert sent_bytes.startswith(b"\xff\xd8\xff")
 
     # Pastikan POST /api/receipts/extract TIDAK menyimpan data ke SQLite
     assert client.get("/api/transactions").json()["count"] == 0
@@ -476,6 +488,8 @@ def test_extract_receipt_maps_parse_unavailable_rate_limit_and_config_errors(
     assert resp_timeout.json()["error_code"] == "AI_SERVICE_UNAVAILABLE"
 
     # 3. Simulasi Rate Limit Gemini 429 -> 429 AI_SERVICE_UNAVAILABLE
+    monkeypatch.setattr(ai_service.time, "sleep", lambda _s: None)
+
     def raise_rate_limit(**_kw: object) -> SimpleNamespace:
         raise genai_errors.APIError(
             429,
@@ -779,3 +793,69 @@ def test_unhandled_exception_returns_generic_500_without_stack_trace(
         assert body["error_code"] == "INTERNAL_SERVER_ERROR"
         assert "Traceback" not in body["message"]
         assert "sensitif_internal_path_secret_xyz" not in body["message"]
+
+
+def test_extract_receipt_compresses_large_rgba_png_and_recovers_from_transient_503(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-07 E2E: Gambar PNG RGBA >1280px dikompresi ke JPEG <=1280px & pulih dari 503."""
+    png_buf = io.BytesIO()
+    Image.new("RGBA", (2000, 2500), (255, 255, 255, 0)).save(png_buf, format="PNG")
+    large_png_bytes = png_buf.getvalue()
+
+    sleep_calls: list[float] = []
+    received_parts: list[object] = []
+    attempt_counter = 0
+
+    def flaky_generate_content(**kwargs: object) -> SimpleNamespace:
+        nonlocal attempt_counter
+        attempt_counter += 1
+        contents = kwargs["contents"]
+        assert isinstance(contents, list)
+        received_parts.append(contents[0])
+        if attempt_counter == 1:
+            raise genai_errors.APIError(
+                503,
+                {"error": {"status": "UNAVAILABLE", "message": "Overloaded"}},
+            )
+        return SimpleNamespace(
+            text=(
+                '{"is_receipt": true, "date": "2026-11-26", '
+                '"items": [{"name": "Roti Tawar", "price": 14000}]}'
+            )
+        )
+
+    monkeypatch.setattr(app_config, "get_gemini_api_key", lambda: "dummy-test-key")
+    monkeypatch.setattr(ai_service.time, "sleep", sleep_calls.append)
+    monkeypatch.setattr(
+        ai_service,
+        "_create_genai_client",
+        lambda _key: SimpleNamespace(
+            models=SimpleNamespace(generate_content=flaky_generate_content)
+        ),
+    )
+
+    resp = client.post(
+        "/api/receipts/extract",
+        files={"file": ("struk_besar.png", large_png_bytes, "image/png")},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "status": "success",
+        "data": {
+            "date": "2026-11-26",
+            "items": [{"name": "Roti Tawar", "price": 14000}],
+        },
+        "warnings": [],
+    }
+    assert attempt_counter == 2
+    assert sleep_calls == [1.0]
+
+    inline_data = getattr(received_parts[0], "inline_data", None)
+    assert inline_data is not None
+    assert inline_data.mime_type == "image/jpeg"
+    with Image.open(io.BytesIO(inline_data.data)) as sent_img:
+        assert sent_img.format == "JPEG"
+        assert sent_img.mode == "RGB"
+        assert sent_img.size == (1280, 1600)

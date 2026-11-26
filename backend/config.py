@@ -17,6 +17,9 @@ DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_DATABASE_PATH = str(BASE_DIR / "extra.db")
 _PLACEHOLDER_API_KEYS = {"your_gemini_api_key_here"}
 _INITIAL_ENV_DATABASE_PATH = os.getenv("DATABASE_PATH", "").strip()
+_INITIAL_ENV_FALLBACK_MODEL: str | None = (
+    os.getenv("GEMINI_FALLBACK_MODEL", "").strip() or None
+)
 
 
 class ConfigurationError(RuntimeError):
@@ -27,7 +30,17 @@ GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL: str = (
     os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
 )
+GEMINI_FALLBACK_MODEL: str | None = _INITIAL_ENV_FALLBACK_MODEL
 DATABASE_PATH: str = _INITIAL_ENV_DATABASE_PATH or DEFAULT_DATABASE_PATH
+
+
+def get_gemini_fallback_model() -> str | None:
+    """Kembalikan nama model fallback Gemini jika dikonfigurasi (default None)."""
+    if GEMINI_FALLBACK_MODEL != _INITIAL_ENV_FALLBACK_MODEL:
+        normalized = (GEMINI_FALLBACK_MODEL or "").strip()
+        return normalized or None
+    env_fallback = os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
+    return env_fallback or None
 
 
 def get_database_path() -> str:
