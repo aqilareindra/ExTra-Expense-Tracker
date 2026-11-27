@@ -66,6 +66,66 @@ export interface TransactionCreateResponse {
   data: TransactionCreatedData;
 }
 
+export interface TransactionListFilters {
+  month?: number | "";
+  year?: number | "";
+  category?: ExpenseCategory | "";
+  search?: string;
+}
+
+export interface TransactionListResponse {
+  status: "success";
+  count: number;
+  data: TransactionItemRecord[];
+}
+
+export interface ItemUpdateRequest {
+  name?: string;
+  price?: number;
+  date?: string;
+  category?: ExpenseCategory;
+}
+
+export interface ItemUpdateResponse {
+  status: "success";
+  data: TransactionItemRecord;
+}
+
+export interface ItemDeleteResponse {
+  status: "success";
+  message: string;
+  deleted_item_id: number;
+  orphan_transaction_deleted: boolean;
+}
+
+export interface TransactionDeleteResponse {
+  status: "success";
+  message: string;
+  deleted_transaction_id: number;
+}
+
+export interface DailyExpenseBreakdown {
+  date: string;
+  total: number;
+  item_count: number;
+}
+
+export interface CategoryExpenseBreakdown {
+  category: ExpenseCategory;
+  total: number;
+  item_count: number;
+}
+
+export interface MonthlySummaryResponse {
+  status: "success";
+  month: number;
+  year: number;
+  total_expense: number;
+  total_items: number;
+  daily_breakdown: DailyExpenseBreakdown[];
+  category_breakdown: CategoryExpenseBreakdown[];
+}
+
 export interface EditableItemDraft {
   localId: string;
   name: string;

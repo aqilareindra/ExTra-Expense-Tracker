@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 import io
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import uuid
 
@@ -1016,3 +1017,44 @@ def test_m1_2_manual_entry_category_filter_update_and_ai_category_normalization(
         {"category": "Tagihan & Utilitas", "total": 100000, "item_count": 1},
         {"category": "Transportasi", "total": 16000, "item_count": 2},
     ]
+
+
+def test_m2_2_frontend_v2_cutover_serves_dist_assets_and_falls_back_safely(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifikasi cutover frontend-v2/dist di GET /, /assets/*, route API/docs, dan fallback ke frontend/."""
+    import backend.main as backend_main
+
+    # 1. Saat frontend-v2/dist tersedia, GET / menyajikan React build dan aset /assets/*
+    root_resp = client.get("/")
+    assert root_resp.status_code == 200
+    assert "text/html" in root_resp.headers["content-type"]
+    assert 'id="root"' in root_resp.text
+    asset_urls = re.findall(r'(/assets/[^"\'\s>]+)', root_resp.text)
+    assert len(asset_urls) >= 1
+    for asset_url in asset_urls:
+        asset_resp = client.get(asset_url)
+        assert asset_resp.status_code == 200
+
+    # 2. Path traversal pada /assets/* wajib ditolak 404
+    traversal_resp = client.get("/assets/../../.env")
+    assert traversal_resp.status_code == 404
+
+    # 3. Route /health, /docs, dan /openapi.json tetap aktif dan tidak tertimpa
+    assert client.get("/health").status_code == 200
+    assert client.get("/docs").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
+
+    # 4. Jika frontend-v2/dist belum ada, fallback aman ke frontend/index.html lama
+    monkeypatch.setattr(
+        backend_main,
+        "FRONTEND_V2_DIST_DIR",
+        tmp_path / "missing_dist",
+    )
+    fallback_resp = client.get("/")
+    assert fallback_resp.status_code == 200
+    assert "text/html" in fallback_resp.headers["content-type"]
+    assert "Catat Pengeluaran" in fallback_resp.text
+    assert "/assets/" not in fallback_resp.text

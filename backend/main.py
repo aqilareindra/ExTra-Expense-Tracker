@@ -17,6 +17,7 @@ from backend.routers.summary import router as summary_router
 from backend.routers.transactions import router as transactions_router
 
 FRONTEND_DIR = config.BASE_DIR / "frontend"
+FRONTEND_V2_DIST_DIR = config.BASE_DIR / "frontend-v2" / "dist"
 logger = logging.getLogger(__name__)
 
 
@@ -127,7 +128,28 @@ if (FRONTEND_DIR / "js").is_dir():
     app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
 
 
+@app.get("/assets/{asset_path:path}", include_in_schema=False)
+def serve_frontend_v2_asset(asset_path: str) -> FileResponse:
+    """Layani aset statis hasil build Vite frontend-v2/dist/assets secara aman."""
+    assets_root = (FRONTEND_V2_DIST_DIR / "assets").resolve()
+    if not assets_root.is_dir():
+        raise StarletteHTTPException(status_code=404, detail="Aset tidak ditemukan.")
+
+    candidate = (assets_root / asset_path).resolve()
+    if (
+        not candidate.is_relative_to(assets_root)
+        or candidate.is_symlink()
+        or not candidate.is_file()
+    ):
+        raise StarletteHTTPException(status_code=404, detail="Aset tidak ditemukan.")
+
+    return FileResponse(candidate)
+
+
 @app.get("/", include_in_schema=False)
 def serve_frontend_index() -> FileResponse:
-    """Layani halaman utama antarmuka web ExTra."""
+    """Layani production build React (frontend-v2/dist) dengan fallback aman ke frontend/."""
+    v2_index = FRONTEND_V2_DIST_DIR / "index.html"
+    if v2_index.is_file():
+        return FileResponse(v2_index, media_type="text/html")
     return FileResponse(FRONTEND_DIR / "index.html", media_type="text/html")

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { ToastBanner } from "./components/common/ToastBanner";
 import { AppHeader, type AppTab } from "./components/layout/AppHeader";
-import { MilestonePlaceholderPage } from "./components/placeholders/MilestonePlaceholderPage";
 import { ExpenseEntryPage } from "./pages/ExpenseEntryPage";
+import { MonthlySummaryPage } from "./pages/MonthlySummaryPage";
+import { TransactionHistoryPage } from "./pages/TransactionHistoryPage";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("entry");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -16,6 +18,11 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
 
+  const handleDataChanged = (msg: string) => {
+    setDataVersion((prev) => prev + 1);
+    setToastMessage(msg);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <AppHeader activeTab={activeTab} onSelectTab={setActiveTab} />
@@ -24,7 +31,7 @@ export function App() {
         {toastMessage ? (
           <ToastBanner
             message={toastMessage}
-            actionLabel={activeTab === "entry" ? "Cek Tab Riwayat" : undefined}
+            actionLabel={activeTab === "entry" ? "Lihat Riwayat" : undefined}
             onAction={
               activeTab === "entry" ? () => setActiveTab("history") : undefined
             }
@@ -33,31 +40,20 @@ export function App() {
         ) : null}
 
         {activeTab === "entry" ? (
-          <ExpenseEntryPage onSavedSuccess={(msg) => setToastMessage(msg)} />
+          <ExpenseEntryPage onSavedSuccess={handleDataChanged} />
         ) : null}
 
         {activeTab === "history" ? (
-          <MilestonePlaceholderPage
-            title="Riwayat Transaksi"
-            description="Halaman riwayat modern di React sedang disiapkan untuk sub-milestone M2.2 (v1.5b). Data yang baru Anda simpan sudah tersimpan aman di backend."
-            plannedFeatures={[
-              "Pencarian barang, filter bulan/tahun, dan filter 7 kategori resmi.",
-              "Edit item, hapus item/transaksi, serta lihat arsip foto struk.",
-              "Ekspor laporan pengeluaran bulanan ke format CSV (UTF-8 BOM).",
-            ]}
+          <TransactionHistoryPage
+            refreshKey={dataVersion}
+            onDataMutated={handleDataChanged}
             onGoToEntry={() => setActiveTab("entry")}
           />
         ) : null}
 
         {activeTab === "summary" ? (
-          <MilestonePlaceholderPage
-            title="Ringkasan Bulanan"
-            description="Dashboard ringkasan bulanan dan grafik modern sedang disiapkan untuk sub-milestone M2.2 (v1.5b)."
-            plannedFeatures={[
-              "Total pengeluaran bulanan dan jumlah barang tercatat deterministik.",
-              "Rincian pengeluaran per kategori dan grafik tren harian interaktif.",
-              "Cutover production build frontend-v2 ke server FastAPI.",
-            ]}
+          <MonthlySummaryPage
+            refreshKey={dataVersion}
             onGoToEntry={() => setActiveTab("entry")}
           />
         ) : null}

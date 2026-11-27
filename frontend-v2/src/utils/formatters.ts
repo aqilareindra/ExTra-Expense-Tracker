@@ -1,6 +1,22 @@
 import { DEFAULT_CATEGORY, type ExpenseCategory } from "../constants/categories";
 import type { EditableItemDraft } from "../types/api";
 
+export const MONTH_NAMES_ID = [
+  "",
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+] as const;
+
 const MONTH_SHORT_ID = [
   "",
   "Jan",
@@ -21,11 +37,30 @@ const idrFormatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 0,
 });
 
+export function getMonthName(monthNumber: number): string {
+  return MONTH_NAMES_ID[monthNumber] ?? "";
+}
+
 export function formatRupiah(value: number): string {
   if (!Number.isFinite(value)) {
     return "Rp 0";
   }
   return `Rp ${idrFormatter.format(Math.trunc(value))}`;
+}
+
+export function formatCompactRupiah(value: number): string {
+  const num = Number(value) || 0;
+  if (num >= 1_000_000) {
+    const jt = num / 1_000_000;
+    const formatted = Number.isInteger(jt)
+      ? String(jt)
+      : jt.toFixed(1).replace(".", ",");
+    return `Rp ${formatted}jt`;
+  }
+  if (num >= 1_000) {
+    return `Rp ${Math.round(num / 1_000)}rb`;
+  }
+  return `Rp ${Math.trunc(num)}`;
 }
 
 export function formatFileSize(bytes: number): string {
