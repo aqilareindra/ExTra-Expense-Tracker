@@ -1,0 +1,17 @@
+services:
+  extra:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: extra-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/extra.db
+      UPLOADS_DIR: /app/uploads
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped

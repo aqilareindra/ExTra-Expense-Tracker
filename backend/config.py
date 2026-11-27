@@ -20,7 +20,9 @@ DEFAULT_RECEIPTS_DIR = DEFAULT_UPLOADS_DIR / "receipts"
 DEFAULT_TEMP_RECEIPTS_DIR = DEFAULT_UPLOADS_DIR / "temp"
 DEFAULT_TEMP_RECEIPT_TTL_SECONDS = 3600
 _PLACEHOLDER_API_KEYS = {"your_gemini_api_key_here"}
-_INITIAL_ENV_DATABASE_PATH = os.getenv("DATABASE_PATH", "").strip()
+_INITIAL_ENV_DATABASE_PATH = (
+    os.getenv("DATABASE_PATH", "").strip() or os.getenv("DB_PATH", "").strip()
+)
 _INITIAL_ENV_UPLOADS_DIR = os.getenv("UPLOADS_DIR", "").strip()
 _INITIAL_ENV_RECEIPTS_DIR = os.getenv("RECEIPTS_DIR", "").strip()
 _INITIAL_ENV_TEMP_RECEIPTS_DIR = os.getenv("TEMP_RECEIPTS_DIR", "").strip()
@@ -70,11 +72,13 @@ def get_gemini_fallback_model() -> str | None:
 
 
 def get_database_path() -> str:
-    """Kembalikan path file SQLite aktif (mendukung override via env DATABASE_PATH)."""
+    """Kembalikan path file SQLite aktif (mendukung override via env DATABASE_PATH atau DB_PATH)."""
     default_or_initial = _INITIAL_ENV_DATABASE_PATH or DEFAULT_DATABASE_PATH
     if DATABASE_PATH != default_or_initial:
         return DATABASE_PATH
-    env_db_path = os.getenv("DATABASE_PATH", "").strip()
+    env_db_path = (
+        os.getenv("DATABASE_PATH", "").strip() or os.getenv("DB_PATH", "").strip()
+    )
     return env_db_path or DATABASE_PATH
 
 

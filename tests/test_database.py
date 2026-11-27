@@ -457,3 +457,40 @@ class TestTransactionServiceCRUD:
             transaction_service.get_transactions(
                 category="Kategori Ilegal", db_path=isolated_db
             )
+
+
+class TestDatabasePathConfiguration:
+    """Verifikasi konfigurasi path DB via environment variable dan auto-mkdir direktori induk."""
+
+    def test_init_db_and_connection_create_missing_parent_directories(
+        self, tmp_path: Path
+    ) -> None:
+        nested_db = tmp_path / "app_data" / "nested" / "extra.db"
+        assert not nested_db.parent.exists()
+
+        init_db(nested_db)
+
+        assert nested_db.parent.is_dir()
+        assert nested_db.is_file()
+        assert _count_rows(nested_db, "transactions") == 0
+
+    def test_get_database_path_supports_database_path_and_db_path_env_vars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend import config as app_config
+
+        primary_db = str(tmp_path / "data_primary" / "extra.db")
+        alias_db = str(tmp_path / "data_alias" / "extra.db")
+
+        monkeypatch.delenv("DATABASE_PATH", raising=False)
+        monkeypatch.delenv("DB_PATH", raising=False)
+        assert app_config.get_database_path() == app_config.DEFAULT_DATABASE_PATH
+
+        monkeypatch.setenv("DB_PATH", alias_db)
+        assert app_config.get_database_path() == alias_db
+
+        monkeypatch.setenv("DATABASE_PATH", primary_db)
+        assert app_config.get_database_path() == primary_db
+
+        init_db()
+        assert Path(primary_db).is_file()

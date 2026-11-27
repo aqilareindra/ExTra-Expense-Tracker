@@ -1028,6 +1028,23 @@ def test_m2_2_frontend_v2_cutover_serves_dist_assets_and_falls_back_safely(
     import backend.main as backend_main
 
     # 1. Saat frontend-v2/dist tersedia, GET / menyajikan React build dan aset /assets/*
+    #    (Pada environment CI fresh checkout tanpa build frontend-v2/dist, gunakan dist sintetis di tmp_path)
+    if not (backend_main.FRONTEND_V2_DIST_DIR / "index.html").is_file():
+        synthetic_dist = tmp_path / "frontend_v2_dist"
+        synthetic_assets = synthetic_dist / "assets"
+        synthetic_assets.mkdir(parents=True, exist_ok=True)
+        (synthetic_assets / "index-ci.js").write_text(
+            "console.log('extra-ci');", encoding="utf-8"
+        )
+        (synthetic_dist / "index.html").write_text(
+            '<!doctype html><html><head><title>ExTra</title></head>'
+            '<body><div id="root"></div>'
+            '<script type="module" src="/assets/index-ci.js"></script>'
+            "</body></html>",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(backend_main, "FRONTEND_V2_DIST_DIR", synthetic_dist)
+
     root_resp = client.get("/")
     assert root_resp.status_code == 200
     assert "text/html" in root_resp.headers["content-type"]

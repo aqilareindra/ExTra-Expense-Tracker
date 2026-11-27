@@ -162,6 +162,24 @@ Database SQLite (`extra.db`) beserta tabelnya akan dibuat secara otomatis saat a
 
 ---
 
+## Menjalankan dengan Docker
+
+Pastikan [Docker Engine / Docker Desktop](https://docs.docker.com/get-docker/) telah terpasang dan file `.env` di root proyek sudah terisi `GEMINI_API_KEY` yang valid.
+
+1. **Build image & jalankan container:**
+   ```bash
+   docker compose up --build
+   ```
+   *(Tambahkan `-d` jika ingin menjalankan di latar belakang: `docker compose up --build -d`)*
+2. **Akses aplikasi:** Buka http://127.0.0.1:8000 di browser (endpoint status: http://127.0.0.1:8000/health).
+3. **Persistensi data:** Database SQLite disimpan di `./data/extra.db` (`/app/data/extra.db` di dalam container) dan arsip foto struk disimpan di `./uploads/` (`/app/uploads` di dalam container), sehingga data tetap aman meskipun container dihentikan atau dibangun ulang (`docker compose down && docker compose up`).
+4. **Hentikan container:**
+   ```bash
+   docker compose down
+   ```
+
+---
+
 ## Menjalankan Suite Pengujian (`pytest`)
 
 Seluruh unit test dan integration test menggunakan database SQLite sementara yang terisolasi (`tmp_path`) serta *mocking* pada layanan AI, sehingga aman dijalankan kapan saja tanpa mengubah `extra.db` maupun memotong kuota Gemini API.

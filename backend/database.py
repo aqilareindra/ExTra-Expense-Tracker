@@ -32,10 +32,20 @@ CREATE INDEX IF NOT EXISTS idx_transaction_items_transaction_id
 """
 
 
+def _ensure_db_parent_dir(resolved_path: str, is_uri: bool) -> None:
+    """Pastikan direktori induk file SQLite otomatis dibuat sebelum koneksi dibuka."""
+    if is_uri or not resolved_path or resolved_path == ":memory:":
+        return
+    parent_dir = Path(resolved_path).parent
+    if str(parent_dir) not in ("", "."):
+        parent_dir.mkdir(parents=True, exist_ok=True)
+
+
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     """Buka koneksi SQLite dengan Row factory dan PRAGMA foreign_keys = ON."""
     resolved_path = str(db_path) if db_path is not None else get_database_path()
     is_uri = resolved_path.startswith("file:")
+    _ensure_db_parent_dir(resolved_path, is_uri=is_uri)
     conn = sqlite3.connect(resolved_path, uri=is_uri)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")

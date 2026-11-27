@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Inisialisasi tabel SQLite saat aplikasi dijalankan."""
+    """Inisialisasi tabel SQLite dan direktori arsip unggahan saat aplikasi dijalankan."""
     init_db()
+    config.get_receipts_dir().mkdir(parents=True, exist_ok=True)
+    config.get_temp_receipts_dir().mkdir(parents=True, exist_ok=True)
     yield
 
 

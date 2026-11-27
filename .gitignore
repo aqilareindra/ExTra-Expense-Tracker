@@ -35,6 +35,9 @@ desktop.ini
 # Uploaded & archived receipt images
 uploads/
 
+# Persistent Docker data directory
+data/
+
 # Frontend dependencies & production build outputs
 node_modules/
 dist/

@@ -1,0 +1,42 @@
+# Version control & CI
+.git/
+.github/
+
+# Environment variables & secrets (kecuali template)
+.env
+.env.*
+!.env.example
+
+# Python virtual environments & cache
+venv/
+.venv/
+env/
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.py[cod]
+**/*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Local SQLite databases & persistent runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+uploads/
+data/
+
+# Frontend dependencies & local build artifacts (dibangun ulang di Stage 1)
+node_modules/
+frontend-v2/node_modules/
+frontend-v2/dist/
+
+# IDE & OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
