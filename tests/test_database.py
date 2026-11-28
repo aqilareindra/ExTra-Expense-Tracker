@@ -6,12 +6,13 @@ import sqlite3
 import pytest
 
 from backend.database import get_connection, init_db
+from backend.schemas.auth import RegisterRequest, UserPublic
 from backend.schemas.transaction import (
     ItemUpdateRequest,
     TransactionCreateRequest,
     TransactionItemCreate,
 )
-from backend.services import transaction_service
+from backend.services import auth_service, transaction_service
 
 
 @pytest.fixture()
@@ -20,6 +21,15 @@ def isolated_db(tmp_path: Path) -> Path:
     db_file = tmp_path / "test_extra.db"
     init_db(db_file)
     return db_file
+
+
+@pytest.fixture()
+def test_user(isolated_db: Path) -> UserPublic:
+    """Daftarkan pengguna uji default di database terisolasi."""
+    return auth_service.register_user(
+        RegisterRequest(email="dbuser@example.com", password="password123"),
+        db_path=isolated_db,
+    )
 
 
 def _count_rows(db_path: Path, table_name: str) -> int:
@@ -49,7 +59,13 @@ class TestDatabaseSchemaAndIntegrity:
                     "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            assert tables == {"transactions", "transaction_items"}
+            assert tables == {"users", "transactions", "transaction_items"}
+
+            user_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users);").fetchall()
+            }
+            assert user_cols == {"id", "email", "password_hash", "created_at"}
 
             tx_cols = {
                 row["name"]
@@ -57,6 +73,7 @@ class TestDatabaseSchemaAndIntegrity:
             }
             assert tx_cols == {
                 "id",
+                "user_id",
                 "transaction_date",
                 "receipt_image_path",
                 "created_at",
@@ -83,6 +100,8 @@ class TestDatabaseSchemaAndIntegrity:
                 ).fetchall()
             }
             assert "idx_transactions_date" in indexes
+            assert "idx_transactions_user_id" in indexes
+            assert "idx_transactions_user_date" in indexes
             assert "idx_transaction_items_transaction_id" in indexes
             assert "idx_transaction_items_category" in indexes
         finally:
@@ -123,6 +142,14 @@ class TestDatabaseSchemaAndIntegrity:
 
         migrated_conn = get_connection(legacy_db)
         try:
+            tables = {
+                row["name"]
+                for row in migrated_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert "users" in tables
+
             tx_cols = {
                 row["name"]
                 for row in migrated_conn.execute(
@@ -130,21 +157,77 @@ class TestDatabaseSchemaAndIntegrity:
                 ).fetchall()
             }
             assert "receipt_image_path" in tx_cols
+            assert "user_id" in tx_cols
             raw_tx = migrated_conn.execute(
-                "SELECT receipt_image_path FROM transactions WHERE id = 1"
+                "SELECT receipt_image_path, user_id FROM transactions WHERE id = 1"
             ).fetchone()
             assert raw_tx["receipt_image_path"] is None
+            assert raw_tx["user_id"] is None
+
+            raw_items = migrated_conn.execute(
+                "SELECT item_name, price, category FROM transaction_items ORDER BY item_name DESC"
+            ).fetchall()
+            assert [
+                (r["item_name"], r["price"], r["category"]) for r in raw_items
+            ] == [
+                ("Indomie Goreng", 3500, "Lainnya"),
+                ("Aqua 600ml", 4000, "Lainnya"),
+            ]
         finally:
             migrated_conn.close()
 
-        migrated_items = transaction_service.get_transactions(db_path=legacy_db)
-        assert len(migrated_items) == 2
-        assert [
-            (it.name, it.price, it.category, it.has_receipt) for it in migrated_items
-        ] == [
-            ("Aqua 600ml", 4000, "Lainnya", False),
-            ("Indomie Goreng", 3500, "Lainnya", False),
-        ]
+    def test_init_db_migrates_legacy_v1_5_schema_adding_users_and_user_id(
+        self, tmp_path: Path
+    ) -> None:
+        legacy_v15_db = tmp_path / "legacy_v1_5.db"
+        raw_conn = sqlite3.connect(str(legacy_v15_db))
+        try:
+            raw_conn.executescript(
+                """
+                CREATE TABLE transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transaction_date TEXT NOT NULL,
+                    receipt_image_path TEXT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE transaction_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transaction_id INTEGER NOT NULL,
+                    item_name TEXT NOT NULL CHECK (length(trim(item_name)) > 0),
+                    category TEXT NOT NULL DEFAULT 'Lainnya',
+                    price INTEGER NOT NULL CHECK (price >= 0),
+                    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                );
+                INSERT INTO transactions (transaction_date, receipt_image_path)
+                VALUES ('2026-11-20', NULL);
+                INSERT INTO transaction_items (transaction_id, item_name, category, price)
+                VALUES (1, 'Kopi Susu', 'Makanan & Minuman', 18000);
+                """
+            )
+            raw_conn.commit()
+        finally:
+            raw_conn.close()
+
+        init_db(legacy_v15_db)
+
+        owner = auth_service.register_user(
+            RegisterRequest(email="legacy-owner@example.com", password="password123"),
+            db_path=legacy_v15_db,
+        )
+        conn = get_connection(legacy_v15_db)
+        try:
+            conn.execute("UPDATE transactions SET user_id = ? WHERE id = 1", (owner.id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        items = transaction_service.get_transactions(
+            user_id=owner.id, db_path=legacy_v15_db
+        )
+        assert len(items) == 1
+        assert items[0].name == "Kopi Susu"
+        assert items[0].category == "Makanan & Minuman"
+        assert items[0].price == 18000
 
     def test_sqlite_check_and_foreign_key_constraints_enforced(
         self, isolated_db: Path
@@ -186,13 +269,14 @@ class TestTransactionServiceCRUD:
     """Pengujian fungsi CRUD, filter, search, cascade delete, dan orphan cleanup."""
 
     def test_create_and_get_transactions_default_ordering(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         t1 = transaction_service.create_transaction(
             TransactionCreateRequest(
                 date="2026-10-15",
                 items=[TransactionItemCreate(name="Roti Tawar", price=12000)],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         t2 = transaction_service.create_transaction(
@@ -203,6 +287,7 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Aqua 600ml", price=4000),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
 
@@ -210,7 +295,9 @@ class TestTransactionServiceCRUD:
         assert t2.transaction_id == 2
         assert len(t2.items) == 2
 
-        history = transaction_service.get_transactions(db_path=isolated_db)
+        history = transaction_service.get_transactions(
+            user_id=test_user.id, db_path=isolated_db
+        )
         assert [item.name for item in history] == [
             "Aqua 600ml",
             "Indomie Goreng",
@@ -218,13 +305,14 @@ class TestTransactionServiceCRUD:
         ]
 
     def test_filter_by_month_year_and_case_insensitive_search(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         transaction_service.create_transaction(
             TransactionCreateRequest(
                 date="2025-11-10",
                 items=[TransactionItemCreate(name="Kopi Susu", price=15000)],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         transaction_service.create_transaction(
@@ -232,6 +320,7 @@ class TestTransactionServiceCRUD:
                 date="2026-10-05",
                 items=[TransactionItemCreate(name="Indomie Soto", price=3500)],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         transaction_service.create_transaction(
@@ -242,22 +331,27 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Sabun Cuci", price=9000),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
 
         nov_2026 = transaction_service.get_transactions(
-            month=11, year=2026, db_path=isolated_db
+            user_id=test_user.id, month=11, year=2026, db_path=isolated_db
         )
         assert [item.name for item in nov_2026] == ["Sabun Cuci", "Indomie Goreng"]
 
-        only_nov = transaction_service.get_transactions(month=11, db_path=isolated_db)
+        only_nov = transaction_service.get_transactions(
+            user_id=test_user.id, month=11, db_path=isolated_db
+        )
         assert len(only_nov) == 3
 
-        only_2026 = transaction_service.get_transactions(year=2026, db_path=isolated_db)
+        only_2026 = transaction_service.get_transactions(
+            user_id=test_user.id, year=2026, db_path=isolated_db
+        )
         assert len(only_2026) == 3
 
         search_indomie = transaction_service.get_transactions(
-            search="iNdOmIe", db_path=isolated_db
+            user_id=test_user.id, search="iNdOmIe", db_path=isolated_db
         )
         assert [item.name for item in search_indomie] == [
             "Indomie Goreng",
@@ -265,13 +359,17 @@ class TestTransactionServiceCRUD:
         ]
 
         combined = transaction_service.get_transactions(
-            month=11, year=2026, search="goreng", db_path=isolated_db
+            user_id=test_user.id,
+            month=11,
+            year=2026,
+            search="goreng",
+            db_path=isolated_db,
         )
         assert len(combined) == 1
         assert combined[0].name == "Indomie Goreng"
 
     def test_update_item_splits_transaction_when_date_changed_on_multi_item_tx(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         created = transaction_service.create_transaction(
             TransactionCreateRequest(
@@ -281,6 +379,7 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Item B", price=7000),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         item_a, item_b = created.items
@@ -290,6 +389,7 @@ class TestTransactionServiceCRUD:
             payload=ItemUpdateRequest(
                 name="Item A Revisi", price=5500, date="2026-11-22"
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert updated_a is not None
@@ -298,23 +398,37 @@ class TestTransactionServiceCRUD:
         assert updated_a.date == "2026-11-22"
         assert updated_a.transaction_id != created.transaction_id
 
+        # Pastikan transaksi pecahan tetap mewarisi user_id pemiliknya
+        conn = get_connection(isolated_db)
+        try:
+            split_tx = conn.execute(
+                "SELECT user_id FROM transactions WHERE id = ?",
+                (updated_a.transaction_id,),
+            ).fetchone()
+            assert int(split_tx["user_id"]) == test_user.id
+        finally:
+            conn.close()
+
         # Pastikan Item B tetap berada pada transaksi dan tanggal semula
         all_items = {
             item.id: item
-            for item in transaction_service.get_transactions(db_path=isolated_db)
+            for item in transaction_service.get_transactions(
+                user_id=test_user.id, db_path=isolated_db
+            )
         }
         assert all_items[item_b.id].date == "2026-11-20"
         assert all_items[item_b.id].transaction_id == created.transaction_id
         assert _count_rows(isolated_db, "transactions") == 2
 
     def test_update_item_updates_date_in_place_for_single_item_tx(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         created = transaction_service.create_transaction(
             TransactionCreateRequest(
                 date="2026-11-20",
                 items=[TransactionItemCreate(name="Parkir", price=2000)],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         only_item = created.items[0]
@@ -322,6 +436,7 @@ class TestTransactionServiceCRUD:
         updated = transaction_service.update_item(
             item_id=only_item.id,
             payload=ItemUpdateRequest(date="2026-11-21"),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert updated is not None
@@ -333,13 +448,14 @@ class TestTransactionServiceCRUD:
             transaction_service.update_item(
                 item_id=9999,
                 payload=ItemUpdateRequest(price=3000),
+                user_id=test_user.id,
                 db_path=isolated_db,
             )
             is None
         )
 
     def test_delete_item_performs_orphan_cleanup_on_last_item(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         created = transaction_service.create_transaction(
             TransactionCreateRequest(
@@ -349,26 +465,38 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Barang 2", price=2000),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         first_id = created.items[0].id
         second_id = created.items[1].id
 
-        res_first = transaction_service.delete_item(first_id, db_path=isolated_db)
+        res_first = transaction_service.delete_item(
+            first_id, user_id=test_user.id, db_path=isolated_db
+        )
         assert res_first is not None
         assert res_first["orphan_transaction_deleted"] is False
         assert _count_rows(isolated_db, "transactions") == 1
         assert _count_rows(isolated_db, "transaction_items") == 1
 
-        res_second = transaction_service.delete_item(second_id, db_path=isolated_db)
+        res_second = transaction_service.delete_item(
+            second_id, user_id=test_user.id, db_path=isolated_db
+        )
         assert res_second is not None
         assert res_second["orphan_transaction_deleted"] is True
         assert _count_rows(isolated_db, "transactions") == 0
         assert _count_rows(isolated_db, "transaction_items") == 0
 
-        assert transaction_service.delete_item(9999, db_path=isolated_db) is None
+        assert (
+            transaction_service.delete_item(
+                9999, user_id=test_user.id, db_path=isolated_db
+            )
+            is None
+        )
 
-    def test_delete_transaction_cascades_to_all_items(self, isolated_db: Path) -> None:
+    def test_delete_transaction_cascades_to_all_items(
+        self, isolated_db: Path, test_user: UserPublic
+    ) -> None:
         created = transaction_service.create_transaction(
             TransactionCreateRequest(
                 date="2026-11-24",
@@ -378,13 +506,14 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Permen", price=2500),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert _count_rows(isolated_db, "transactions") == 1
         assert _count_rows(isolated_db, "transaction_items") == 3
 
         deleted = transaction_service.delete_transaction(
-            created.transaction_id, db_path=isolated_db
+            created.transaction_id, user_id=test_user.id, db_path=isolated_db
         )
         assert deleted is True
         assert _count_rows(isolated_db, "transactions") == 0
@@ -392,13 +521,13 @@ class TestTransactionServiceCRUD:
 
         assert (
             transaction_service.delete_transaction(
-                created.transaction_id, db_path=isolated_db
+                created.transaction_id, user_id=test_user.id, db_path=isolated_db
             )
             is False
         )
 
     def test_category_persistence_filter_and_partial_update(
-        self, isolated_db: Path
+        self, isolated_db: Path, test_user: UserPublic
     ) -> None:
         created = transaction_service.create_transaction(
             TransactionCreateRequest(
@@ -417,6 +546,7 @@ class TestTransactionServiceCRUD:
                     TransactionItemCreate(name="Parkir", price=2000),
                 ],
             ),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert [it.category for it in created.items] == [
@@ -426,7 +556,7 @@ class TestTransactionServiceCRUD:
         ]
 
         only_transport = transaction_service.get_transactions(
-            category="Transportasi", db_path=isolated_db
+            user_id=test_user.id, category="Transportasi", db_path=isolated_db
         )
         assert len(only_transport) == 1
         assert only_transport[0].name == "Bensin Pertalite"
@@ -436,6 +566,7 @@ class TestTransactionServiceCRUD:
         updated_parkir = transaction_service.update_item(
             item_id=parkir_item.id,
             payload=ItemUpdateRequest(category="Transportasi"),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert updated_parkir is not None
@@ -447,6 +578,7 @@ class TestTransactionServiceCRUD:
         re_updated = transaction_service.update_item(
             item_id=parkir_item.id,
             payload=ItemUpdateRequest(price=3000),
+            user_id=test_user.id,
             db_path=isolated_db,
         )
         assert re_updated is not None
@@ -455,7 +587,7 @@ class TestTransactionServiceCRUD:
 
         with pytest.raises(ValueError):
             transaction_service.get_transactions(
-                category="Kategori Ilegal", db_path=isolated_db
+                user_id=test_user.id, category="Kategori Ilegal", db_path=isolated_db
             )
 
 

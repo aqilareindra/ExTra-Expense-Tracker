@@ -211,11 +211,18 @@ def validate_and_compress_image(
     return compressed_bytes, TARGET_MIME_TYPE
 
 
+def _validate_user_id_dir_segment(user_id: int) -> str:
+    """Pastikan user_id berupa integer positif agar aman sebagai nama subdirektori."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+        raise ValueError("user_id harus berupa integer positif.")
+    return str(user_id)
+
+
 def cleanup_expired_temp_images(
     ttl_seconds: int | None = None,
     now_ts: float | None = None,
 ) -> int:
-    """Hapus file JPEG sementara di uploads/temp/ yang usianya melampaui batas TTL."""
+    """Hapus file JPEG sementara di uploads/temp/ (root & per-user) yang melampaui TTL."""
     temp_dir = app_config.get_temp_receipts_dir()
     if not temp_dir.is_dir():
         return 0
@@ -224,7 +231,8 @@ def cleanup_expired_temp_images(
     current_ts = time.time() if now_ts is None else now_ts
     removed_count = 0
 
-    for candidate in temp_dir.glob("*.jpg"):
+    candidates = [*temp_dir.glob("*.jpg"), *temp_dir.glob("*/*.jpg")]
+    for candidate in candidates:
         try:
             if candidate.is_symlink() or not candidate.is_file():
                 continue
@@ -238,34 +246,48 @@ def cleanup_expired_temp_images(
     return removed_count
 
 
-def save_temp_receipt_image(compressed_jpeg_bytes: bytes) -> str:
-    """Simpan gambar struk JPEG terkompresi ke uploads/temp/{uuid}.jpg dan kembalikan token UUID."""
+def save_temp_receipt_image(compressed_jpeg_bytes: bytes, user_id: int) -> str:
+    """Simpan gambar struk JPEG terkompresi ke uploads/temp/{user_id}/{uuid}.jpg."""
     cleanup_expired_temp_images()
 
+    user_segment = _validate_user_id_dir_segment(user_id)
     temp_root = app_config.get_temp_receipts_dir().resolve()
-    temp_root.mkdir(parents=True, exist_ok=True)
+    user_dir = (temp_root / user_segment).resolve()
+    if user_dir.parent != temp_root or not user_dir.is_relative_to(temp_root):
+        raise InvalidTempTokenError()
+    user_dir.mkdir(parents=True, exist_ok=True)
 
     token = str(uuid.uuid4())
-    dest = (temp_root / f"{token}.jpg").resolve()
-    if dest.parent != temp_root:
+    dest = (user_dir / f"{token}.jpg").resolve()
+    if dest.parent != user_dir or not dest.is_relative_to(temp_root):
         raise InvalidTempTokenError()
 
     dest.write_bytes(compressed_jpeg_bytes)
     return token
 
 
-def promote_temp_receipt_to_archive(temp_token: str) -> str:
-    """Validasi token UUID, pindahkan file dari uploads/temp/ ke uploads/receipts/, dan kembalikan nama file."""
+def promote_temp_receipt_to_archive(temp_token: str, user_id: int) -> str:
+    """Validasi token UUID milik user_id, pindahkan ke uploads/receipts/, dan kembalikan nama file."""
     cleanup_expired_temp_images()
 
+    user_segment = _validate_user_id_dir_segment(user_id)
     try:
         clean_token = validate_strict_uuid_token(temp_token)
     except ValueError as exc:
         raise InvalidTempTokenError() from exc
 
     temp_root = app_config.get_temp_receipts_dir().resolve()
-    src = (temp_root / f"{clean_token}.jpg").resolve()
-    if src.parent != temp_root or src.is_symlink() or not src.is_file():
+    user_dir = (temp_root / user_segment).resolve()
+    if user_dir.parent != temp_root or not user_dir.is_relative_to(temp_root):
+        raise InvalidTempTokenError()
+
+    src = (user_dir / f"{clean_token}.jpg").resolve()
+    if (
+        src.parent != user_dir
+        or not src.is_relative_to(temp_root)
+        or src.is_symlink()
+        or not src.is_file()
+    ):
         raise ReceiptTempNotFoundError()
 
     receipts_root = app_config.get_receipts_dir().resolve()

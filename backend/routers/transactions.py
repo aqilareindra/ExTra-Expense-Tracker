@@ -1,8 +1,9 @@
-"""Router REST API untuk operasi CRUD, ekspor CSV, dan arsip struk ExTra."""
+"""Router REST API untuk operasi CRUD, ekspor CSV, dan arsip struk terisolasi per pengguna."""
 
-from fastapi import APIRouter, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 
+from backend.schemas.auth import UserPublic
 from backend.schemas.categories import ExpenseCategory
 from backend.schemas.transaction import (
     ErrorResponse,
@@ -15,6 +16,7 @@ from backend.schemas.transaction import (
     TransactionListResponse,
 )
 from backend.services import export_service, image_service, transaction_service
+from backend.services.auth_service import get_current_user
 from backend.services.image_service import ImageServiceError
 
 router = APIRouter(prefix="/api", tags=["Transactions"])
@@ -42,14 +44,22 @@ def _not_found_response(message: str) -> JSONResponse:
     "/transactions",
     response_model=TransactionCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 def create_transaction_endpoint(
     payload: TransactionCreateRequest,
+    current_user: UserPublic = Depends(get_current_user),
 ) -> TransactionCreateResponse | JSONResponse:
-    """Simpan transaksi beserta daftar item (dan arsip struk jika temp_image_token dikirim)."""
+    """Simpan transaksi beserta daftar item milik pengguna yang sedang login."""
     try:
-        created_data = transaction_service.create_transaction(payload)
+        created_data = transaction_service.create_transaction(
+            payload,
+            user_id=current_user.id,
+        )
     except ImageServiceError as exc:
         return _error_response(
             status_code=exc.status_code,
@@ -63,16 +73,18 @@ def create_transaction_endpoint(
     "/transactions",
     response_model=TransactionListResponse,
     status_code=status.HTTP_200_OK,
-    responses={422: {"model": ErrorResponse}},
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def list_transactions_endpoint(
     month: int | None = Query(default=None, ge=1, le=12),
     year: int | None = Query(default=None, ge=1000, le=9999),
     category: ExpenseCategory | None = Query(default=None),
     search: str | None = Query(default=None),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> TransactionListResponse:
-    """Ambil daftar riwayat item transaksi dengan filter opsional month, year, category, dan search."""
+    """Ambil daftar riwayat item transaksi milik pengguna aktif."""
     items = transaction_service.get_transactions(
+        user_id=current_user.id,
         month=month,
         year=year,
         category=category,
@@ -84,16 +96,18 @@ def list_transactions_endpoint(
 @router.get(
     "/transactions/export",
     status_code=status.HTTP_200_OK,
-    responses={422: {"model": ErrorResponse}},
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def export_transactions_csv_endpoint(
     month: int | None = Query(default=None, ge=1, le=12),
     year: int | None = Query(default=None, ge=1000, le=9999),
     category: ExpenseCategory | None = Query(default=None),
     search: str | None = Query(default=None),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> Response:
-    """Unduh riwayat pengeluaran terfilter dalam format CSV (UTF-8 with BOM)."""
+    """Unduh riwayat pengeluaran terfilter milik pengguna aktif dalam format CSV."""
     csv_bytes = export_service.generate_transactions_csv(
+        user_id=current_user.id,
         month=month,
         year=year,
         category=category,
@@ -113,14 +127,20 @@ def export_transactions_csv_endpoint(
     "/transactions/{transaction_id}/receipt",
     response_model=None,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 def get_transaction_receipt_endpoint(
     transaction_id: int = Path(..., ge=1),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> FileResponse | JSONResponse:
-    """Ambil file foto struk terarsip milik transaksi tertentu secara aman."""
+    """Ambil file foto struk terarsip milik transaksi pengguna aktif secara aman."""
     stored_filename = transaction_service.get_transaction_receipt_filename(
-        transaction_id=transaction_id
+        transaction_id=transaction_id,
+        user_id=current_user.id,
     )
     file_path = image_service.resolve_archived_receipt_path(stored_filename)
     if file_path is None:
@@ -134,14 +154,23 @@ def get_transaction_receipt_endpoint(
     "/items/{item_id}",
     response_model=ItemUpdateResponse,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 def update_item_endpoint(
     payload: ItemUpdateRequest,
     item_id: int = Path(..., ge=1),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> ItemUpdateResponse | JSONResponse:
-    """Perbarui nama barang, harga, kategori, dan/atau tanggal transaksi pada item tersimpan."""
-    updated_item = transaction_service.update_item(item_id=item_id, payload=payload)
+    """Perbarui nama barang, harga, kategori, dan/atau tanggal pada item milik pengguna aktif."""
+    updated_item = transaction_service.update_item(
+        item_id=item_id,
+        payload=payload,
+        user_id=current_user.id,
+    )
     if updated_item is None:
         return _not_found_response(f"Item dengan ID {item_id} tidak ditemukan.")
     return ItemUpdateResponse(data=updated_item)
@@ -151,13 +180,21 @@ def update_item_endpoint(
     "/items/{item_id}",
     response_model=ItemDeleteResponse,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 def delete_item_endpoint(
     item_id: int = Path(..., ge=1),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> ItemDeleteResponse | JSONResponse:
-    """Hapus satu item pengeluaran dan bersihkan header transaksi jika yatim."""
-    result = transaction_service.delete_item(item_id=item_id)
+    """Hapus satu item milik pengguna aktif dan bersihkan transaksi yatim jika kosong."""
+    result = transaction_service.delete_item(
+        item_id=item_id,
+        user_id=current_user.id,
+    )
     if result is None:
         return _not_found_response(f"Item dengan ID {item_id} tidak ditemukan.")
     return ItemDeleteResponse(
@@ -171,13 +208,21 @@ def delete_item_endpoint(
     "/transactions/{transaction_id}",
     response_model=TransactionDeleteResponse,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 def delete_transaction_endpoint(
     transaction_id: int = Path(..., ge=1),
+    current_user: UserPublic = Depends(get_current_user),
 ) -> TransactionDeleteResponse | JSONResponse:
-    """Hapus keseluruhan transaksi beserta seluruh item dan arsip foto struk terkait."""
-    deleted = transaction_service.delete_transaction(transaction_id=transaction_id)
+    """Hapus keseluruhan transaksi milik pengguna aktif beserta item dan arsip struknya."""
+    deleted = transaction_service.delete_transaction(
+        transaction_id=transaction_id,
+        user_id=current_user.id,
+    )
     if not deleted:
         return _not_found_response(
             f"Transaksi dengan ID {transaction_id} tidak ditemukan."

@@ -135,3 +135,35 @@ export interface EditableItemDraft {
   categoryError?: string;
   priceError?: string;
 }
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  created_at: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthSuccessResponse {
+  status: "success";
+  message: string;
+  data: AuthUser;
+}
+
+export interface CurrentUserResponse {
+  status: "success";
+  data: AuthUser;
+}
+
+export interface LogoutResponse {
+  status: "success";
+  message: string;
+}

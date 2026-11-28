@@ -25,11 +25,16 @@ from backend.services import ai_service
 
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Jalankan TestClient dengan database & direktori uploads terisolasi di tmp_path."""
+    """Jalankan TestClient terautentikasi dengan database & uploads terisolasi di tmp_path."""
     test_db_file = tmp_path / "test_api.db"
     monkeypatch.setenv("DATABASE_PATH", str(test_db_file))
     monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads"))
     with TestClient(app) as api_client:
+        reg_resp = api_client.post(
+            "/api/auth/register",
+            json={"email": "api-test@example.com", "password": "password123"},
+        )
+        assert reg_resp.status_code == 201
         yield api_client
 
 
@@ -813,6 +818,11 @@ def test_unhandled_exception_returns_generic_500_without_stack_trace(
     monkeypatch.setattr(transaction_service, "get_transactions", explode)
 
     with TestClient(app, raise_server_exceptions=False) as safe_client:
+        reg_resp = safe_client.post(
+            "/api/auth/register",
+            json={"email": "err-test@example.com", "password": "password123"},
+        )
+        assert reg_resp.status_code == 201
         resp = safe_client.get("/api/transactions")
         assert resp.status_code == 500
         body = resp.json()

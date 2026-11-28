@@ -126,10 +126,15 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Buka file `.env` menggunakan teks editor dan isi `GEMINI_API_KEY` milik Anda:
+Buka file `.env` menggunakan teks editor dan isi `GEMINI_API_KEY` serta `JWT_SECRET` milik Anda:
 ```env
 GEMINI_API_KEY=isi_dengan_gemini_api_key_anda
 GEMINI_MODEL=gemini-3.5-flash-lite
+JWT_SECRET=isi_dengan_random_secret_minimal_32_karakter
+JWT_EXPIRE_MINUTES=1440
+COOKIE_SECURE=false
+# Kosongkan DATABASE_URL untuk memakai SQLite lokal (extra.db), atau isi URI PostgreSQL:
+DATABASE_URL=
 ```
 > **Catatan Keamanan:** Jangan pernah membagikan atau melakukan *commit* file `.env` ke repositori Git. File `.env` sudah masuk ke daftar `.gitignore`.
 
@@ -172,7 +177,7 @@ Pastikan [Docker Engine / Docker Desktop](https://docs.docker.com/get-docker/) t
    ```
    *(Tambahkan `-d` jika ingin menjalankan di latar belakang: `docker compose up --build -d`)*
 2. **Akses aplikasi:** Buka http://127.0.0.1:8000 di browser (endpoint status: http://127.0.0.1:8000/health).
-3. **Persistensi data:** Database SQLite disimpan di `./data/extra.db` (`/app/data/extra.db` di dalam container) dan arsip foto struk disimpan di `./uploads/` (`/app/uploads` di dalam container), sehingga data tetap aman meskipun container dihentikan atau dibangun ulang (`docker compose down && docker compose up`).
+3. **Persistensi data:** Docker Compose menjalankan service PostgreSQL (`postgres:16-alpine`) dengan volume persisten `postgres_data` untuk database serta bind mount `./uploads/` (`/app/uploads`) untuk arsip foto struk, sehingga data tetap aman meskipun container dihentikan atau dibangun ulang (`docker compose down && docker compose up`). Untuk pengembangan lokal tanpa Docker, aplikasi otomatis menggunakan SQLite (`extra.db`) apabila `DATABASE_URL` dikosongkan.
 4. **Hentikan container:**
    ```bash
    docker compose down

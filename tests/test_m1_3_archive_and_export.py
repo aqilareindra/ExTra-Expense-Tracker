@@ -34,12 +34,17 @@ def _make_sample_jpeg_bytes(width: int = 400, height: int = 600) -> bytes:
 def isolated_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, Path, Path]]:
-    """Sediakan TestClient dengan DATABASE_PATH & UPLOADS_DIR terisolasi di tmp_path."""
+    """Sediakan TestClient terautentikasi dengan DATABASE_PATH & UPLOADS_DIR terisolasi."""
     db_file = tmp_path / "test_m1_3.db"
     uploads_dir = tmp_path / "uploads"
     monkeypatch.setenv("DATABASE_PATH", str(db_file))
     monkeypatch.setenv("UPLOADS_DIR", str(uploads_dir))
     with TestClient(app) as api_client:
+        reg_resp = api_client.post(
+            "/api/auth/register",
+            json={"email": "archive-user@example.com", "password": "password123"},
+        )
+        assert reg_resp.status_code == 201
         yield api_client, db_file, uploads_dir
 
 
@@ -78,7 +83,11 @@ class TestReceiptArchiveLifecycleAndSecurity:
             ),
         )
 
-        # 1. Extract menyimpan file terkompresi di uploads/temp/{token}.jpg
+        # 1. Extract menyimpan file terkompresi di uploads/temp/{user_id}/{token}.jpg
+        me_resp = client.get("/api/auth/me")
+        assert me_resp.status_code == 200
+        user_id = me_resp.json()["data"]["id"]
+
         extract_resp = client.post(
             "/api/receipts/extract",
             files={"file": ("struk_hp.jpg", _make_sample_jpeg_bytes(), "image/jpeg")},
@@ -87,7 +96,7 @@ class TestReceiptArchiveLifecycleAndSecurity:
         extract_body = extract_resp.json()
         token = extract_body["temp_image_token"]
         assert str(uuid.UUID(token)) == token
-        temp_file = temp_dir / f"{token}.jpg"
+        temp_file = temp_dir / str(user_id) / f"{token}.jpg"
         assert temp_file.is_file()
 
         # 2. Simpan transaksi dengan temp_image_token -> pindah ke uploads/receipts/
@@ -167,11 +176,12 @@ class TestReceiptArchiveLifecycleAndSecurity:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         client, _db_file, uploads_dir = isolated_env
-        temp_dir = uploads_dir / "temp"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        user_id = client.get("/api/auth/me").json()["data"]["id"]
+        user_temp_dir = uploads_dir / "temp" / str(user_id)
+        user_temp_dir.mkdir(parents=True, exist_ok=True)
 
-        expired_file = temp_dir / f"{uuid.uuid4()}.jpg"
-        fresh_file = temp_dir / f"{uuid.uuid4()}.jpg"
+        expired_file = user_temp_dir / f"{uuid.uuid4()}.jpg"
+        fresh_file = user_temp_dir / f"{uuid.uuid4()}.jpg"
         expired_file.write_bytes(_make_sample_jpeg_bytes(10, 10))
         fresh_file.write_bytes(_make_sample_jpeg_bytes(10, 10))
 
@@ -220,7 +230,7 @@ class TestReceiptArchiveLifecycleAndSecurity:
             assert api_resp.json()["error_code"] == "VALIDATION_ERROR"
 
             with pytest.raises(image_service.InvalidTempTokenError) as svc_exc:
-                image_service.promote_temp_receipt_to_archive(bad_token)
+                image_service.promote_temp_receipt_to_archive(bad_token, user_id=1)
             assert svc_exc.value.status_code == 400
 
         # 2. Transaksi manual tanpa foto struk -> has_receipt=False & GET receipt -> 404 aman

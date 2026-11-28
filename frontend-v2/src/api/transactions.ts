@@ -10,7 +10,7 @@ import type {
   TransactionListFilters,
   TransactionListResponse,
 } from "../types/api";
-import { requestJson } from "./client";
+import { ApiClientError, notifyUnauthorized, requestJson } from "./client";
 
 function normalizeRecord(item: TransactionItemRecord): TransactionItemRecord {
   return {
@@ -127,16 +127,66 @@ export function buildExportTransactionsUrl(
   return qs ? `/api/transactions/export?${qs}` : "/api/transactions/export";
 }
 
-export function triggerCsvExportDownload(
+function extractFilenameFromHeader(
+  contentDisposition: string | null,
+): string {
+  if (!contentDisposition) {
+    return "extra-pengeluaran.csv";
+  }
+  const match = /filename="?([^";\n]+)"?/i.exec(contentDisposition);
+  return match && match[1] ? match[1].trim() : "extra-pengeluaran.csv";
+}
+
+export async function triggerCsvExportDownload(
   filters: TransactionListFilters = {},
-): void {
+): Promise<void> {
   const exportUrl = buildExportTransactionsUrl(filters);
+  let response: Response;
+  try {
+    response = await fetch(exportUrl, {
+      method: "GET",
+      credentials: "include",
+    });
+  } catch {
+    throw new ApiClientError(
+      "Tidak dapat terhubung ke server ExTra saat mengunduh CSV.",
+      0,
+      "NETWORK_ERROR",
+      [],
+    );
+  }
+
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new ApiClientError(
+      "Sesi login telah berakhir. Silakan masuk kembali.",
+      401,
+      "UNAUTHORIZED",
+      [],
+    );
+  }
+
+  if (!response.ok) {
+    throw new ApiClientError(
+      `Gagal mengunduh laporan CSV (HTTP ${response.status}).`,
+      response.status,
+      `HTTP_${response.status}`,
+      [],
+    );
+  }
+
+  const blob = await response.blob();
+  const filename = extractFilenameFromHeader(
+    response.headers.get("content-disposition"),
+  );
+  const objectUrl = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = exportUrl;
-  link.download = "";
+  link.href = objectUrl;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
 }
 
 export function getTransactionReceiptUrl(transactionId: number): string {

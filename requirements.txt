@@ -2,6 +2,11 @@ fastapi
 uvicorn
 google-genai
 pydantic
+email-validator
+SQLAlchemy>=2.0
+psycopg[binary]
+PyJWT
+bcrypt
 Pillow
 python-dotenv
 python-multipart

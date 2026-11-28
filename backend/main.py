@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend import config
 from backend.database import init_db
+from backend.routers.auth import router as auth_router
 from backend.routers.receipts import router as receipts_router
 from backend.routers.summary import router as summary_router
 from backend.routers.transactions import router as transactions_router
@@ -75,8 +76,11 @@ async def http_exception_handler(
 
     code_map = {
         400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
         404: "NOT_FOUND",
         405: "METHOD_NOT_ALLOWED",
+        409: "CONFLICT",
         413: "FILE_TOO_LARGE",
         422: "VALIDATION_ERROR",
         429: "AI_SERVICE_UNAVAILABLE",
@@ -112,6 +116,7 @@ async def unhandled_exception_handler(
     )
 
 
+app.include_router(auth_router)
 app.include_router(receipts_router)
 app.include_router(transactions_router)
 app.include_router(summary_router)

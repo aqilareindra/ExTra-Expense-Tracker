@@ -29,14 +29,16 @@ def build_export_filename(
 
 
 def generate_transactions_csv(
+    user_id: int,
     month: int | None = None,
     year: int | None = None,
     category: str | None = None,
     search: str | None = None,
     db_path: str | Path | None = None,
 ) -> bytes:
-    """Hasilkan file CSV UTF-8 with BOM berisi kolom Tanggal, Nama Barang, Kategori, Harga."""
+    """Hasilkan file CSV UTF-8 with BOM berisi transaksi terfilter milik user_id."""
     items = transaction_service.get_transactions(
+        user_id=user_id,
         month=month,
         year=year,
         category=category,

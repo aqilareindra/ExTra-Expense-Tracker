@@ -127,13 +127,22 @@ export function TransactionHistoryPage({
     setYearFilter("");
   };
 
-  const handleExportCsv = () => {
-    triggerCsvExportDownload({
-      search: searchInput.trim() || undefined,
-      category: categoryFilter || undefined,
-      month: monthFilter === "" ? undefined : monthFilter,
-      year: yearFilter === "" ? undefined : yearFilter,
-    });
+  const handleExportCsv = async () => {
+    setErrorMessage(null);
+    try {
+      await triggerCsvExportDownload({
+        search: searchInput.trim() || undefined,
+        category: categoryFilter || undefined,
+        month: monthFilter === "" ? undefined : monthFilter,
+        year: yearFilter === "" ? undefined : yearFilter,
+      });
+    } catch (err) {
+      const msg =
+        err instanceof ApiClientError || err instanceof Error
+          ? err.message
+          : "Gagal mengunduh file CSV.";
+      setErrorMessage(msg);
+    }
   };
 
   return (
@@ -287,7 +296,7 @@ export function TransactionHistoryPage({
 
           <button
             type="button"
-            onClick={handleExportCsv}
+            onClick={() => void handleExportCsv()}
             className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 sm:text-sm"
           >
             Ekspor CSV

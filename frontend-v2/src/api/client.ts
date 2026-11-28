@@ -21,6 +21,9 @@ export class ApiClientError extends Error {
 
 const FALLBACK_STATUS_MESSAGES: Record<number, string> = {
   400: "Permintaan tidak valid. Periksa kembali file atau data yang dikirim.",
+  401: "Sesi login tidak valid atau telah berakhir. Silakan masuk kembali.",
+  403: "Anda tidak memiliki izin untuk mengakses resource ini.",
+  409: "Data yang dikirim bertentangan dengan data yang sudah ada.",
   413: "Ukuran file melebihi batas maksimal 5 MB.",
   422: "Data belum lolos validasi. Periksa kembali input yang ditandai.",
   429: "Batas permintaan layanan AI tercapai sementara. Silakan coba lagi sebentar.",
@@ -28,6 +31,16 @@ const FALLBACK_STATUS_MESSAGES: Record<number, string> = {
   502: "Format respons layanan AI tidak dapat diproses. Silakan unggah ulang.",
   503: "Layanan AI sedang sibuk atau tidak dapat dijangkau sementara. Silakan coba lagi.",
 };
+
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+export function notifyUnauthorized(): void {
+  unauthorizedHandler?.();
+}
 
 function isApiErrorPayload(value: unknown): value is ApiErrorResponse {
   return (
@@ -44,7 +57,10 @@ export async function requestJson<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, {
+      credentials: "include",
+      ...options,
+    });
   } catch {
     throw new ApiClientError(
       "Tidak dapat terhubung ke server ExTra. Pastikan backend FastAPI sedang berjalan.",
@@ -65,6 +81,10 @@ export async function requestJson<T>(
   }
 
   if (!response.ok || isApiErrorPayload(payload)) {
+    if (response.status === 401 && !url.startsWith("/api/auth/")) {
+      notifyUnauthorized();
+    }
+
     const errorPayload = isApiErrorPayload(payload) ? payload : null;
     const rawMsg = errorPayload?.message?.trim();
     const fallbackMsg =

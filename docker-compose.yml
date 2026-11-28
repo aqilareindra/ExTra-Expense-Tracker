@@ -1,17 +1,40 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: extra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-extra_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-extra_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-extra_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-extra_user} -d ${POSTGRES_DB:-extra_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   extra:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: extra-app
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      DATABASE_PATH: /app/data/extra.db
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-extra_user}:${POSTGRES_PASSWORD:-extra_dev_password}@postgres:5432/${POSTGRES_DB:-extra_db}
       UPLOADS_DIR: /app/uploads
+      JWT_SECRET: ${JWT_SECRET:-extra-docker-dev-jwt-secret-change-me-32chars}
     volumes:
-      - ./data:/app/data
       - ./uploads:/app/uploads
     restart: unless-stopped
+
+volumes:
+  postgres_data:

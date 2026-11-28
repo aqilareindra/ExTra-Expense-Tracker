@@ -1,9 +1,10 @@
-"""Layanan CRUD SQLite, pencarian, filter riwayat, dan sinkronisasi arsip foto struk ExTra."""
+"""Layanan CRUD SQLAlchemy (SQLite & PostgreSQL), filter riwayat, dan isolasi arsip struk ExTra."""
 
 from pathlib import Path
-import sqlite3
 
-from backend.database import db_transaction, get_connection
+from sqlalchemy import func, select
+
+from backend.database import Transaction, TransactionItem, session_scope
 from backend.schemas.categories import validate_strict_category
 from backend.schemas.transaction import (
     ItemUpdateRequest,
@@ -14,17 +15,32 @@ from backend.schemas.transaction import (
 from backend.services import image_service
 
 
-def _row_to_item_record(row: sqlite3.Row) -> TransactionItemRecord:
-    """Konversi baris hasil join SQLite ke skema TransactionItemRecord."""
+def _validate_user_id(user_id: int) -> int:
+    """Pastikan user_id bertipe integer positif."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+        raise ValueError("user_id harus berupa integer positif.")
+    return user_id
+
+
+def _has_receipt_flag(receipt_image_path: str | None) -> bool:
+    """Konversi path arsip struk menjadi boolean has_receipt tanpa membocorkan path."""
+    return bool(isinstance(receipt_image_path, str) and receipt_image_path.strip())
+
+
+def _orm_to_item_record(
+    item: TransactionItem,
+    tx: Transaction,
+) -> TransactionItemRecord:
+    """Konversi pasangan model ORM TransactionItem & Transaction ke skema TransactionItemRecord."""
     return TransactionItemRecord(
-        id=int(row["id"]),
-        transaction_id=int(row["transaction_id"]),
-        date=str(row["date"]),
-        name=str(row["name"]),
-        category=str(row["category"]),
-        price=int(row["price"]),
-        has_receipt=bool(row["has_receipt"]),
-        created_at=str(row["created_at"]),
+        id=int(item.id),
+        transaction_id=int(item.transaction_id),
+        date=str(tx.transaction_date),
+        name=str(item.item_name),
+        category=str(item.category),
+        price=int(item.price),
+        has_receipt=_has_receipt_flag(tx.receipt_image_path),
+        created_at=str(tx.created_at),
     )
 
 
@@ -39,165 +55,117 @@ def _escape_like_pattern(term: str) -> str:
 
 def create_transaction(
     payload: TransactionCreateRequest,
+    user_id: int,
     db_path: str | Path | None = None,
 ) -> TransactionCreatedData:
-    """Simpan header transactions, transaction_items, serta arsip foto struk jika ada."""
+    """Simpan header transactions, transaction_items, serta arsip foto struk milik user_id."""
+    owner_id = _validate_user_id(user_id)
     archived_filename: str | None = None
     if payload.temp_image_token is not None:
         archived_filename = image_service.promote_temp_receipt_to_archive(
-            payload.temp_image_token
+            payload.temp_image_token,
+            user_id=owner_id,
         )
 
     try:
-        with db_transaction(db_path) as conn:
-            header_cursor = conn.execute(
-                "INSERT INTO transactions (transaction_date, receipt_image_path) VALUES (?, ?)",
-                (payload.date, archived_filename),
+        with session_scope(db_path) as session:
+            new_tx = Transaction(
+                user_id=owner_id,
+                transaction_date=payload.date,
+                receipt_image_path=archived_filename,
             )
-            transaction_id = int(header_cursor.lastrowid)
+            new_tx.items = [
+                TransactionItem(
+                    item_name=item.name,
+                    category=item.category,
+                    price=item.price,
+                )
+                for item in payload.items
+            ]
+            session.add(new_tx)
+            session.flush()
+            session.refresh(new_tx)
 
-            conn.executemany(
-                """
-                INSERT INTO transaction_items (transaction_id, item_name, category, price)
-                VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (transaction_id, item.name, item.category, item.price)
-                    for item in payload.items
-                ],
+            ordered_items = sorted(new_tx.items, key=lambda row: int(row.id))
+            item_records = [_orm_to_item_record(item, new_tx) for item in ordered_items]
+            return TransactionCreatedData(
+                transaction_id=int(new_tx.id),
+                date=str(new_tx.transaction_date),
+                has_receipt=_has_receipt_flag(new_tx.receipt_image_path),
+                created_at=str(new_tx.created_at),
+                items=item_records,
             )
-
-            tx_row = conn.execute(
-                """
-                SELECT
-                    id,
-                    transaction_date,
-                    receipt_image_path,
-                    created_at
-                FROM transactions
-                WHERE id = ?
-                """,
-                (transaction_id,),
-            ).fetchone()
-
-            item_rows = conn.execute(
-                """
-                SELECT
-                    ti.id AS id,
-                    ti.transaction_id AS transaction_id,
-                    t.transaction_date AS date,
-                    ti.item_name AS name,
-                    ti.category AS category,
-                    ti.price AS price,
-                    (
-                        t.receipt_image_path IS NOT NULL
-                        AND length(trim(t.receipt_image_path)) > 0
-                    ) AS has_receipt,
-                    t.created_at AS created_at
-                FROM transaction_items ti
-                JOIN transactions t ON t.id = ti.transaction_id
-                WHERE ti.transaction_id = ?
-                ORDER BY ti.id ASC
-                """,
-                (transaction_id,),
-            ).fetchall()
     except Exception:
         if archived_filename is not None:
             image_service.delete_archived_receipt_file(archived_filename)
         raise
 
-    return TransactionCreatedData(
-        transaction_id=int(tx_row["id"]),
-        date=str(tx_row["transaction_date"]),
-        has_receipt=bool(tx_row["receipt_image_path"]),
-        created_at=str(tx_row["created_at"]),
-        items=[_row_to_item_record(row) for row in item_rows],
-    )
-
 
 def get_transactions(
+    user_id: int,
     month: int | None = None,
     year: int | None = None,
     category: str | None = None,
     search: str | None = None,
     db_path: str | Path | None = None,
 ) -> list[TransactionItemRecord]:
-    """Ambil daftar item transaksi dengan filter opsional month, year, category, dan search."""
+    """Ambil daftar item transaksi milik user_id dengan filter opsional periode, kategori, dan search."""
+    owner_id = _validate_user_id(user_id)
     if month is not None and (isinstance(month, bool) or not 1 <= month <= 12):
         raise ValueError("Parameter month harus bernilai antara 1 hingga 12.")
     if year is not None and (isinstance(year, bool) or not 1000 <= year <= 9999):
         raise ValueError("Parameter year harus berupa tahun 4 digit (1000-9999).")
 
-    conditions: list[str] = []
-    params: list[object] = []
+    stmt = (
+        select(TransactionItem, Transaction)
+        .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+        .where(Transaction.user_id == owner_id)
+    )
 
     if year is not None and month is not None:
-        conditions.append("t.transaction_date >= ? AND t.transaction_date <= ?")
-        params.extend([f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-31"])
+        stmt = stmt.where(
+            Transaction.transaction_date >= f"{year:04d}-{month:02d}-01",
+            Transaction.transaction_date <= f"{year:04d}-{month:02d}-31",
+        )
     elif year is not None:
-        conditions.append("t.transaction_date >= ? AND t.transaction_date <= ?")
-        params.extend([f"{year:04d}-01-01", f"{year:04d}-12-31"])
+        stmt = stmt.where(
+            Transaction.transaction_date >= f"{year:04d}-01-01",
+            Transaction.transaction_date <= f"{year:04d}-12-31",
+        )
     elif month is not None:
-        conditions.append("substr(t.transaction_date, 6, 2) = ?")
-        params.append(f"{month:02d}")
+        stmt = stmt.where(func.substr(Transaction.transaction_date, 6, 2) == f"{month:02d}")
 
     if category is not None and category.strip():
         validated_cat = validate_strict_category(category)
-        conditions.append("ti.category = ?")
-        params.append(validated_cat)
+        stmt = stmt.where(TransactionItem.category == validated_cat)
 
     if search is not None and search.strip():
         escaped = _escape_like_pattern(search.strip().lower())
-        conditions.append("LOWER(ti.item_name) LIKE ? ESCAPE '\\'")
-        params.append(f"%{escaped}%")
+        stmt = stmt.where(
+            func.lower(TransactionItem.item_name).like(f"%{escaped}%", escape="\\")
+        )
 
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    query = f"""
-        SELECT
-            ti.id AS id,
-            ti.transaction_id AS transaction_id,
-            t.transaction_date AS date,
-            ti.item_name AS name,
-            ti.category AS category,
-            ti.price AS price,
-            (
-                t.receipt_image_path IS NOT NULL
-                AND length(trim(t.receipt_image_path)) > 0
-            ) AS has_receipt,
-            t.created_at AS created_at
-        FROM transaction_items ti
-        JOIN transactions t ON t.id = ti.transaction_id
-        {where_clause}
-        ORDER BY t.transaction_date DESC, ti.id DESC
-    """
+    stmt = stmt.order_by(Transaction.transaction_date.desc(), TransactionItem.id.desc())
 
-    conn = get_connection(db_path)
-    try:
-        rows = conn.execute(query, params).fetchall()
-    finally:
-        conn.close()
-
-    return [_row_to_item_record(row) for row in rows]
+    with session_scope(db_path) as session:
+        rows = session.execute(stmt).all()
+        return [_orm_to_item_record(item, tx) for item, tx in rows]
 
 
 def get_transaction_receipt_filename(
     transaction_id: int,
+    user_id: int,
     db_path: str | Path | None = None,
 ) -> str | None:
-    """Ambil nama file arsip struk milik transaksi tertentu, atau None jika tidak ada."""
-    conn = get_connection(db_path)
-    try:
-        row = conn.execute(
-            "SELECT receipt_image_path FROM transactions WHERE id = ?",
-            (transaction_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-
-    if row is None:
-        return None
-
-    stored = row["receipt_image_path"]
+    """Ambil nama file arsip struk milik transaksi tertentu yang dimiliki user_id."""
+    owner_id = _validate_user_id(user_id)
+    with session_scope(db_path) as session:
+        stored = session.scalar(
+            select(Transaction.receipt_image_path).where(
+                Transaction.id == transaction_id,
+                Transaction.user_id == owner_id,
+            )
+        )
     if not isinstance(stored, str):
         return None
     trimmed = stored.strip()
@@ -207,132 +175,102 @@ def get_transaction_receipt_filename(
 def update_item(
     item_id: int,
     payload: ItemUpdateRequest,
+    user_id: int,
     db_path: str | Path | None = None,
 ) -> TransactionItemRecord | None:
-    """Perbarui nama, harga, kategori, dan/atau tanggal transaksi sebuah item.
+    """Perbarui item milik user_id; pertahankan kepemilikan user_id jika transaksi dipecah."""
+    owner_id = _validate_user_id(user_id)
+    with session_scope(db_path) as session:
+        row = session.execute(
+            select(TransactionItem, Transaction)
+            .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+            .where(
+                TransactionItem.id == item_id,
+                Transaction.user_id == owner_id,
+            )
+        ).first()
 
-    Jika tanggal diubah pada item dalam transaksi multi-item, item dipindahkan ke
-    record transactions baru tanpa menghapus arsip struk pada transaksi induknya.
-    """
-    with db_transaction(db_path) as conn:
-        existing = conn.execute(
-            """
-            SELECT
-                ti.id AS id,
-                ti.transaction_id AS transaction_id,
-                ti.item_name AS item_name,
-                ti.category AS category,
-                ti.price AS price,
-                t.transaction_date AS transaction_date
-            FROM transaction_items ti
-            JOIN transactions t ON t.id = ti.transaction_id
-            WHERE ti.id = ?
-            """,
-            (item_id,),
-        ).fetchone()
-
-        if existing is None:
+        if row is None:
             return None
 
-        current_tx_id = int(existing["transaction_id"])
-        target_tx_id = current_tx_id
-        new_name = (
-            payload.name if payload.name is not None else str(existing["item_name"])
-        )
-        new_category = (
-            payload.category
-            if payload.category is not None
-            else str(existing["category"])
-        )
-        new_price = (
-            payload.price if payload.price is not None else int(existing["price"])
-        )
+        item, current_tx = row
+        if payload.name is not None:
+            item.item_name = payload.name
+        if payload.category is not None:
+            item.category = payload.category
+        if payload.price is not None:
+            item.price = payload.price
 
-        if payload.date is not None and payload.date != str(existing["transaction_date"]):
-            count_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM transaction_items WHERE transaction_id = ?",
-                (current_tx_id,),
-            ).fetchone()
-            sibling_count = int(count_row["cnt"])
-
+        target_tx = current_tx
+        if payload.date is not None and payload.date != str(current_tx.transaction_date):
+            sibling_count = int(
+                session.scalar(
+                    select(func.count(TransactionItem.id)).where(
+                        TransactionItem.transaction_id == current_tx.id
+                    )
+                )
+                or 0
+            )
             if sibling_count > 1:
-                new_tx_cursor = conn.execute(
-                    "INSERT INTO transactions (transaction_date, receipt_image_path) VALUES (?, NULL)",
-                    (payload.date,),
+                new_tx = Transaction(
+                    user_id=owner_id,
+                    transaction_date=payload.date,
+                    receipt_image_path=None,
                 )
-                target_tx_id = int(new_tx_cursor.lastrowid)
+                session.add(new_tx)
+                session.flush()
+                session.refresh(new_tx)
+                item.transaction_id = int(new_tx.id)
+                target_tx = new_tx
             else:
-                conn.execute(
-                    "UPDATE transactions SET transaction_date = ? WHERE id = ?",
-                    (payload.date, current_tx_id),
-                )
+                current_tx.transaction_date = payload.date
 
-        conn.execute(
-            """
-            UPDATE transaction_items
-            SET transaction_id = ?, item_name = ?, category = ?, price = ?
-            WHERE id = ?
-            """,
-            (target_tx_id, new_name, new_category, new_price, item_id),
-        )
-
-        updated_row = conn.execute(
-            """
-            SELECT
-                ti.id AS id,
-                ti.transaction_id AS transaction_id,
-                t.transaction_date AS date,
-                ti.item_name AS name,
-                ti.category AS category,
-                ti.price AS price,
-                (
-                    t.receipt_image_path IS NOT NULL
-                    AND length(trim(t.receipt_image_path)) > 0
-                ) AS has_receipt,
-                t.created_at AS created_at
-            FROM transaction_items ti
-            JOIN transactions t ON t.id = ti.transaction_id
-            WHERE ti.id = ?
-            """,
-            (item_id,),
-        ).fetchone()
-
-    return _row_to_item_record(updated_row)
+        session.flush()
+        return _orm_to_item_record(item, target_tx)
 
 
 def delete_item(
     item_id: int,
+    user_id: int,
     db_path: str | Path | None = None,
 ) -> dict[str, int | bool] | None:
-    """Hapus satu item dan bersihkan transaksi yatim beserta file arsip struknya."""
+    """Hapus satu item milik user_id dan bersihkan transaksi yatim beserta file arsipnya."""
+    owner_id = _validate_user_id(user_id)
     receipt_to_delete: str | None = None
+    tx_id: int
+    orphan_deleted = False
 
-    with db_transaction(db_path) as conn:
-        existing = conn.execute(
-            "SELECT id, transaction_id FROM transaction_items WHERE id = ?",
-            (item_id,),
-        ).fetchone()
+    with session_scope(db_path) as session:
+        row = session.execute(
+            select(TransactionItem, Transaction)
+            .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+            .where(
+                TransactionItem.id == item_id,
+                Transaction.user_id == owner_id,
+            )
+        ).first()
 
-        if existing is None:
+        if row is None:
             return None
 
-        tx_id = int(existing["transaction_id"])
-        conn.execute("DELETE FROM transaction_items WHERE id = ?", (item_id,))
+        item, tx = row
+        tx_id = int(tx.id)
+        session.delete(item)
+        session.flush()
 
-        remaining_row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM transaction_items WHERE transaction_id = ?",
-            (tx_id,),
-        ).fetchone()
+        remaining = int(
+            session.scalar(
+                select(func.count(TransactionItem.id)).where(
+                    TransactionItem.transaction_id == tx_id
+                )
+            )
+            or 0
+        )
 
-        orphan_deleted = False
-        if int(remaining_row["cnt"]) == 0:
-            tx_row = conn.execute(
-                "SELECT receipt_image_path FROM transactions WHERE id = ?",
-                (tx_id,),
-            ).fetchone()
-            if tx_row is not None and isinstance(tx_row["receipt_image_path"], str):
-                receipt_to_delete = tx_row["receipt_image_path"].strip() or None
-            conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+        if remaining == 0:
+            if isinstance(tx.receipt_image_path, str):
+                receipt_to_delete = tx.receipt_image_path.strip() or None
+            session.delete(tx)
             orphan_deleted = True
 
     if orphan_deleted and receipt_to_delete is not None:
@@ -347,29 +285,29 @@ def delete_item(
 
 def delete_transaction(
     transaction_id: int,
+    user_id: int,
     db_path: str | Path | None = None,
 ) -> bool:
-    """Hapus transaksi, seluruh item via CASCADE, dan file arsip struk terkait."""
+    """Hapus transaksi milik user_id, seluruh item via CASCADE, dan arsip foto struk terkait."""
+    owner_id = _validate_user_id(user_id)
     receipt_to_delete: str | None = None
 
-    with db_transaction(db_path) as conn:
-        tx_row = conn.execute(
-            "SELECT receipt_image_path FROM transactions WHERE id = ?",
-            (transaction_id,),
-        ).fetchone()
-        if tx_row is None:
+    with session_scope(db_path) as session:
+        tx = session.scalar(
+            select(Transaction).where(
+                Transaction.id == transaction_id,
+                Transaction.user_id == owner_id,
+            )
+        )
+        if tx is None:
             return False
 
-        if isinstance(tx_row["receipt_image_path"], str):
-            receipt_to_delete = tx_row["receipt_image_path"].strip() or None
+        if isinstance(tx.receipt_image_path, str):
+            receipt_to_delete = tx.receipt_image_path.strip() or None
 
-        cursor = conn.execute(
-            "DELETE FROM transactions WHERE id = ?",
-            (transaction_id,),
-        )
-        deleted = cursor.rowcount > 0
+        session.delete(tx)
 
-    if deleted and receipt_to_delete is not None:
+    if receipt_to_delete is not None:
         image_service.delete_archived_receipt_file(receipt_to_delete)
 
-    return deleted
+    return True

@@ -30,6 +30,7 @@ jobs:
       - name: Run pytest suite
         env:
           GEMINI_API_KEY: test-dummy-key
+          JWT_SECRET: test-jwt-secret-key-ci
         run: pytest -v
 
   frontend-build:
