@@ -45,7 +45,11 @@ export function formatRupiah(value: number): string {
   if (!Number.isFinite(value)) {
     return "Rp 0";
   }
-  return `Rp ${idrFormatter.format(Math.trunc(value))}`;
+  const truncated = Math.trunc(value);
+  if (truncated < 0) {
+    return `-Rp ${idrFormatter.format(Math.abs(truncated))}`;
+  }
+  return `Rp ${idrFormatter.format(truncated)}`;
 }
 
 export function formatCompactRupiah(value: number): string {

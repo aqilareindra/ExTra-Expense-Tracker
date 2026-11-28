@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backend import config
 from backend.database import init_db
 from backend.routers.auth import router as auth_router
+from backend.routers.budgets import router as budgets_router
 from backend.routers.receipts import router as receipts_router
 from backend.routers.summary import router as summary_router
 from backend.routers.transactions import router as transactions_router
@@ -120,6 +121,7 @@ app.include_router(auth_router)
 app.include_router(receipts_router)
 app.include_router(transactions_router)
 app.include_router(summary_router)
+app.include_router(budgets_router)
 
 
 @app.get("/health")

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     event,
     inspect,
@@ -51,6 +52,16 @@ class User(Base):
     )
 
     transactions: Mapped[list["Transaction"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    incomes: Mapped[list["Income"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    budgets: Mapped[list["Budget"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -130,6 +141,79 @@ class TransactionItem(Base):
         CheckConstraint("price >= 0", name="ck_transaction_items_price_nonneg"),
         Index("idx_transaction_items_transaction_id", "transaction_id"),
         Index("idx_transaction_items_category", "category"),
+    )
+
+
+class Income(Base):
+    """Model tabel pencatatan pemasukan milik seorang pengguna (M3.3)."""
+
+    __tablename__ = "incomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    income_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    source_name: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=_utc_now_str,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    user: Mapped[User] = relationship(back_populates="incomes")
+
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(source_name)) > 0",
+            name="ck_incomes_source_nonempty",
+        ),
+        CheckConstraint("amount >= 0", name="ck_incomes_amount_nonneg"),
+        Index("idx_incomes_user_id", "user_id"),
+        Index("idx_incomes_date", "income_date"),
+        Index("idx_incomes_user_date", "user_id", "income_date"),
+    )
+
+
+class Budget(Base):
+    """Model tabel batas anggaran bulanan per kategori milik pengguna (M3.3)."""
+
+    __tablename__ = "budgets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    limit_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="budgets")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "month",
+            "year",
+            "category",
+            name="uq_budgets_user_period_category",
+        ),
+        CheckConstraint("month >= 1 AND month <= 12", name="ck_budgets_month_range"),
+        CheckConstraint("year >= 1000 AND year <= 9999", name="ck_budgets_year_range"),
+        CheckConstraint(
+            "length(trim(category)) > 0",
+            name="ck_budgets_category_nonempty",
+        ),
+        CheckConstraint("limit_amount >= 0", name="ck_budgets_limit_nonneg"),
+        Index("idx_budgets_user_id", "user_id"),
+        Index("idx_budgets_user_period", "user_id", "year", "month"),
     )
 
 

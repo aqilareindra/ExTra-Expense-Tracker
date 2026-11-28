@@ -18,6 +18,8 @@ export async function getMonthlySummary(
   );
   return {
     ...response,
+    total_income: Number(response.total_income ?? 0),
+    net_balance: Number(response.net_balance ?? 0),
     daily_breakdown: Array.isArray(response.daily_breakdown)
       ? response.daily_breakdown
       : [],

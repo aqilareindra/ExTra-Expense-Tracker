@@ -121,6 +121,8 @@ export interface MonthlySummaryResponse {
   month: number;
   year: number;
   total_expense: number;
+  total_income: number;
+  net_balance: number;
   total_items: number;
   daily_breakdown: DailyExpenseBreakdown[];
   category_breakdown: CategoryExpenseBreakdown[];
@@ -166,4 +168,121 @@ export interface CurrentUserResponse {
 export interface LogoutResponse {
   status: "success";
   message: string;
+}
+
+export interface IncomeCreateRequest {
+  income_date: string;
+  source_name: string;
+  amount: number;
+}
+
+export interface IncomeRecord {
+  id: number;
+  income_date: string;
+  source_name: string;
+  amount: number;
+  created_at: string;
+}
+
+export interface IncomeResponse {
+  status: "success";
+  data: IncomeRecord;
+}
+
+export interface IncomeListResponse {
+  status: "success";
+  count: number;
+  total_income: number;
+  data: IncomeRecord[];
+}
+
+export interface IncomeDeleteResponse {
+  status: "success";
+  message: string;
+  deleted_income_id: number;
+}
+
+export type BudgetStatus = "safe" | "warning" | "over_budget";
+
+export interface BudgetUpsertRequest {
+  month: number;
+  year: number;
+  category: ExpenseCategory;
+  limit_amount: number;
+}
+
+export interface BudgetStatusItem {
+  id: number;
+  month: number;
+  year: number;
+  category: ExpenseCategory;
+  limit_amount: number;
+  spent_amount: number;
+  remaining_amount: number;
+  usage_percentage: number;
+  status: BudgetStatus;
+}
+
+export interface BudgetUpsertResponse {
+  status: "success";
+  message: string;
+  data: BudgetStatusItem;
+}
+
+export interface BudgetListResponse {
+  status: "success";
+  month: number;
+  year: number;
+  total_budget: number;
+  total_spent: number;
+  total_remaining: number;
+  data: BudgetStatusItem[];
+}
+
+export interface BudgetDeleteResponse {
+  status: "success";
+  message: string;
+  deleted_budget_id: number;
+}
+
+export interface InsightsTopCategoryItem {
+  category: ExpenseCategory;
+  total: number;
+  share_percentage: number;
+  item_count: number;
+}
+
+export interface InsightsBudgetAlertItem {
+  category: ExpenseCategory;
+  limit_amount: number;
+  spent_amount: number;
+  remaining_amount: number;
+  usage_percentage: number;
+  status: BudgetStatus;
+}
+
+export interface InsightsMetricsSnapshot {
+  month: number;
+  year: number;
+  total_income: number;
+  total_expense: number;
+  net_balance: number;
+  total_items: number;
+  previous_month: number;
+  previous_year: number;
+  previous_month_expense: number;
+  mom_expense_change_amount: number;
+  mom_expense_change_percentage: number | null;
+  top_categories: InsightsTopCategoryItem[];
+  budget_alerts: InsightsBudgetAlertItem[];
+}
+
+export interface MonthlyInsightsResponse {
+  status: "success";
+  month: number;
+  year: number;
+  has_data: boolean;
+  summary_text: string;
+  recommendations: string[];
+  metrics_snapshot: InsightsMetricsSnapshot;
 }

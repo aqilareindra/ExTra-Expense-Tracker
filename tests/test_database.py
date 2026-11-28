@@ -59,13 +59,45 @@ class TestDatabaseSchemaAndIntegrity:
                     "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             }
-            assert tables == {"users", "transactions", "transaction_items"}
+            assert tables == {
+                "users",
+                "transactions",
+                "transaction_items",
+                "incomes",
+                "budgets",
+            }
 
             user_cols = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(users);").fetchall()
             }
             assert user_cols == {"id", "email", "password_hash", "created_at"}
+
+            income_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(incomes);").fetchall()
+            }
+            assert income_cols == {
+                "id",
+                "user_id",
+                "income_date",
+                "source_name",
+                "amount",
+                "created_at",
+            }
+
+            budget_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(budgets);").fetchall()
+            }
+            assert budget_cols == {
+                "id",
+                "user_id",
+                "month",
+                "year",
+                "category",
+                "limit_amount",
+            }
 
             tx_cols = {
                 row["name"]

@@ -11,6 +11,13 @@ from backend.schemas.transaction import (
 )
 
 
+def validate_strict_signed_int(value: object) -> int:
+    """Pastikan nilai bertipe integer murni (mengizinkan negatif untuk net_balance)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Nilai harus berupa bilangan bulat (integer).")
+    return value
+
+
 class DailyExpenseBreakdown(BaseModel):
     """Agregasi pengeluaran harian pada bulan dan tahun terpilih."""
 
@@ -54,6 +61,18 @@ class MonthlySummaryResponse(BaseModel):
     month: int = Field(..., ge=1, le=12)
     year: int = Field(..., ge=1000, le=9999)
     total_expense: int = Field(..., ge=0)
+    total_income: int = Field(default=0, ge=0)
+    net_balance: int = 0
     total_items: int = Field(..., ge=0)
     daily_breakdown: list[DailyExpenseBreakdown] = Field(default_factory=list)
     category_breakdown: list[CategoryExpenseBreakdown] = Field(default_factory=list)
+
+    @field_validator("total_income", mode="before")
+    @classmethod
+    def _check_total_income(cls, value: object) -> int:
+        return validate_strict_non_negative_price(value)
+
+    @field_validator("net_balance", mode="before")
+    @classmethod
+    def _check_net_balance(cls, value: object) -> int:
+        return validate_strict_signed_int(value)

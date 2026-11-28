@@ -1,4 +1,4 @@
-export type AppTab = "entry" | "history" | "summary";
+export type AppTab = "entry" | "history" | "budgets" | "summary";
 
 interface AppHeaderProps {
   activeTab: AppTab;
@@ -11,6 +11,7 @@ interface AppHeaderProps {
 const NAV_ITEMS: readonly { id: AppTab; label: string; shortLabel: string }[] = [
   { id: "entry", label: "Catat Pengeluaran", shortLabel: "Catat" },
   { id: "history", label: "Riwayat Transaksi", shortLabel: "Riwayat" },
+  { id: "budgets", label: "Anggaran & Pemasukan", shortLabel: "Anggaran" },
   { id: "summary", label: "Ringkasan Bulanan", shortLabel: "Ringkasan" },
 ];
 
@@ -68,7 +69,7 @@ export function AppHeader({
           </p>
 
           <nav
-            className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 sm:flex sm:w-auto"
+            className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 sm:flex sm:w-auto"
             role="tablist"
             aria-label="Navigasi Utama"
           >

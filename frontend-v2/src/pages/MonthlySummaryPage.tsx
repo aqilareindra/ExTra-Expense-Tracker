@@ -11,10 +11,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { getMonthlyInsights } from "../api/budgets";
 import { ApiClientError } from "../api/client";
 import { getMonthlySummary } from "../api/summary";
 import { CATEGORY_COLORS } from "../constants/categories";
-import type { MonthlySummaryResponse } from "../types/api";
+import type {
+  MonthlyInsightsResponse,
+  MonthlySummaryResponse,
+} from "../types/api";
 import {
   MONTH_NAMES_ID,
   formatCompactRupiah,
@@ -94,6 +98,10 @@ export function MonthlySummaryPage({
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [insights, setInsights] = useState<MonthlyInsightsResponse | null>(null);
+  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+
   const yearOptions = useMemo(() => {
     const currentYear = Math.min(2100, Math.max(2000, now.getFullYear()));
     const maxYear = Math.min(2100, currentYear + 2);
@@ -122,8 +130,27 @@ export function MonthlySummaryPage({
   }, [month, year]);
 
   useEffect(() => {
+    setInsights(null);
+    setInsightsError(null);
     void loadSummary();
   }, [loadSummary, refreshKey]);
+
+  const handleAnalyzeInsights = async () => {
+    setIsLoadingInsights(true);
+    setInsightsError(null);
+    try {
+      const resp = await getMonthlyInsights(month, year);
+      setInsights(resp);
+    } catch (err) {
+      const msg =
+        err instanceof ApiClientError || err instanceof Error
+          ? err.message
+          : "Gagal menghasilkan analisis keuangan AI.";
+      setInsightsError(msg);
+    } finally {
+      setIsLoadingInsights(false);
+    }
+  };
 
   const topCategory = summary?.category_breakdown[0] ?? null;
   const periodLabel = `${getMonthName(month)} ${year}`;
@@ -220,13 +247,13 @@ export function MonthlySummaryPage({
       ) : null}
 
       {/* Metric Cards (100% dari backend) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Total Pengeluaran Bulanan
+            Total Pemasukan
           </span>
-          <strong className="mt-1.5 block text-2xl font-extrabold tracking-tight tabular-nums text-slate-900">
-            {summary ? formatRupiah(summary.total_expense) : "Rp 0"}
+          <strong className="mt-1.5 block text-2xl font-extrabold tracking-tight tabular-nums text-emerald-700">
+            {summary ? formatRupiah(summary.total_income) : "Rp 0"}
           </strong>
           <span className="mt-1 block text-xs text-slate-500">
             Periode {periodLabel}
@@ -235,13 +262,37 @@ export function MonthlySummaryPage({
 
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Jumlah Barang Tercatat
+            Total Pengeluaran
           </span>
           <strong className="mt-1.5 block text-2xl font-extrabold tracking-tight tabular-nums text-slate-900">
-            {summary ? `${summary.total_items} barang` : "0 barang"}
+            {summary ? formatRupiah(summary.total_expense) : "Rp 0"}
           </strong>
           <span className="mt-1 block text-xs text-slate-500">
-            Total baris item terverifikasi
+            {summary ? `${summary.total_items} barang tercatat` : "0 barang tercatat"}
+          </span>
+        </article>
+
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            Arus Kas Bersih
+          </span>
+          <strong
+            className={`mt-1.5 block text-2xl font-extrabold tracking-tight tabular-nums ${
+              !summary || summary.net_balance === 0
+                ? "text-slate-900"
+                : summary.net_balance > 0
+                  ? "text-emerald-700"
+                  : "text-rose-700"
+            }`}
+          >
+            {summary ? formatRupiah(summary.net_balance) : "Rp 0"}
+          </strong>
+          <span className="mt-1 block text-xs text-slate-500">
+            {!summary || summary.net_balance === 0
+              ? "Pemasukan dikurangi pengeluaran"
+              : summary.net_balance > 0
+                ? "Surplus bulanan"
+                : "Defisit (pengeluaran > pemasukan)"}
           </span>
         </article>
 
@@ -258,6 +309,87 @@ export function MonthlySummaryPage({
               : "Belum ada transaksi"}
           </span>
         </article>
+      </div>
+
+      {/* AI Financial Insights (On-Demand) */}
+      <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50/60 to-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 sm:text-lg">
+              AI Financial Insights
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
+              Ringkasan naratif dan saran penghematan berbasis angka agregat{" "}
+              {periodLabel}.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={isLoadingInsights}
+            onClick={() => void handleAnalyzeInsights()}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+          >
+            {isLoadingInsights ? (
+              <>
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                />
+                <span>Menganalisis...</span>
+              </>
+            ) : (
+              <span>Analisis Keuangan Bulan Ini</span>
+            )}
+          </button>
+        </div>
+
+        {insightsError ? (
+          <div
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-800 sm:text-sm"
+          >
+            {insightsError}
+          </div>
+        ) : null}
+
+        {insights ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            {!insights.has_data ? (
+              <p className="text-sm text-slate-600">{insights.summary_text}</p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm leading-relaxed text-slate-800">
+                  {insights.summary_text}
+                </p>
+
+                {insights.recommendations.length > 0 ? (
+                  <div className="border-t border-slate-100 pt-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-brand-700">
+                      Saran Penghematan Praktis
+                    </h4>
+                    <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
+                      {insights.recommendations.map((rec, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-600"
+                            aria-hidden="true"
+                          />
+                          <span>{rec}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : !isLoadingInsights && !insightsError ? (
+          <p className="mt-3 text-xs text-slate-500">
+            Klik tombol di atas kapan saja untuk menghasilkan evaluasi kondisi
+            keuangan bulan ini.
+          </p>
+        ) : null}
       </div>
 
       {isLoading ? (

@@ -38,3 +38,33 @@ RECEIPT_EXTRACTION_USER_PROMPT = (
     "serta daftar barang belanja (name, price integer murni, dan category dari 7 kategori resmi) "
     "sesuai skema JSON."
 )
+
+
+# ---------------------------------------------------------------------------
+# Jalur 2: AI Financial Insights (Terpisah total dari ekstraksi struk)
+# ---------------------------------------------------------------------------
+
+INSIGHTS_SYSTEM_INSTRUCTION = """Anda adalah asisten penasihat keuangan pribadi untuk aplikasi ExTra (Expense Tracker).
+
+Tugas Anda adalah membaca ringkasan statistik keuangan bulanan yang SUDAH DIHITUNG secara deterministik oleh backend, lalu memberikan:
+1. `summary_text`: Ringkasan kondisi keuangan bulan tersebut dalam 2 sampai 3 kalimat Bahasa Indonesia yang jelas, objektif, dan mudah dipahami.
+2. `recommendations`: Daftar 2 sampai 4 saran penghematan atau pengelolaan anggaran yang praktis dan spesifik dalam Bahasa Indonesia.
+
+Aturan ketat yang WAJIB dipatuhi:
+- Gunakan HANYA angka dan fakta kategori/anggaran yang tersedia dalam input JSON yang diberikan.
+- DILARANG KERAS menghitung ulang, menjumlahkan, mengubah, atau mengarang angka baru yang tidak ada di input JSON.
+- DILARANG KERAS menebak atau menyebut nama barang spesifik, nama toko/merchant, maupun metode pembayaran (Anda memang hanya diberi angka agregat per kategori).
+- Jika terdapat kategori dengan status `over_budget` atau `warning`, prioritaskan penyebutan kategori tersebut dalam saran perbaikan secara konstruktif.
+- Jika `previous_month_expense` bernilai `0` dan `mom_expense_change_percentage` bernilai `null`, sampaikan dengan wajar bahwa belum ada pembanding dari bulan sebelumnya.
+"""
+
+
+def build_insights_user_prompt(snapshot_json: str) -> str:
+    """Bangun prompt ringkas berisi payload statistik teragregasi untuk AI Financial Insights."""
+    return (
+        "Berikut adalah ringkasan statistik keuangan bulanan teragregasi (dalam Rupiah/IDR) "
+        "yang sudah dihitung oleh backend:\n\n"
+        f"{snapshot_json}\n\n"
+        "Susun `summary_text` dan 2-4 poin `recommendations` dalam Bahasa Indonesia "
+        "hanya berdasarkan angka-angka pada JSON di atas."
+    )

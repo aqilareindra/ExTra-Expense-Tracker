@@ -1,28 +1,31 @@
-# ExTra (Expense Tracker)
+# ExTra (Expense Tracker) — v2.0.0
 
-**ExTra** adalah aplikasi web pencatatan dan pemantauan pengeluaran pribadi berbasis foto struk belanja yang memanfaatkan **Google Gemini Flash Vision API** dengan pendekatan ***Human-in-the-Loop***.
+**ExTra** adalah aplikasi web pencatatan dan pemantauan keuangan pribadi berbasis foto struk belanja yang memanfaatkan **Google Gemini Flash Vision API** dengan pendekatan ***Human-in-the-Loop***.
 
-Pengguna cukup mengunggah foto struk belanja (`JPG`, `JPEG`, atau `PNG`), memeriksa dan mengedit hasil pembacaan AI pada tabel pratinjau interaktif, lalu menyimpan data yang telah tervalidasi ke database lokal **SQLite**. Seluruh perhitungan riwayat dan ringkasan pengeluaran bulanan dijalankan 100% secara deterministik menggunakan Python dan SQL (tanpa kalkulasi LLM).
+Pengguna dapat mendaftar dan login secara aman, mengunggah foto struk belanja (`JPG`, `JPEG`, atau `PNG`) maupun mencatat pengeluaran secara manual, mengatur batas anggaran bulanan per kategori, mencatat pemasukan, serta meninjau ringkasan arus kas dan wawasan penghematan AI. Seluruh perhitungan angka keuangan (total bulanan, subtotal kategori, sisa anggaran, arus kas bersih) dijalankan 100% secara deterministik di backend Python & SQL (tanpa kalkulasi LLM).
 
 ---
 
-## Fitur Utama (MVP v1.0)
+## Fitur Utama (v2.0.0)
 
-1. **Upload & Ekstraksi Struk Berbasis AI**
-   - Mendukung *file picker* dan *drag-and-drop* untuk gambar `JPG`, `JPEG`, dan `PNG` (maksimal **5 MB**) beserta *thumbnail preview* dan indikator loading aktif.
-   - Validasi berlapis di sisi klien dan backend (ukuran file, ekstensi, MIME type, dan *magic bytes* konten gambar).
-   - Mengekstrak **hanya 3 informasi inti**: tanggal transaksi (`date`), nama barang (`name`), dan harga barang (`price`) melalui Structured Output Gemini Vision tanpa menyimpan foto struk ke disk.
-2. **Validasi Dua Tahap & Tabel Preview Editable (*Human-in-the-Loop*)**
-   - Validasi skema tahap 1 (`ReceiptExtractionResult`) untuk pratinjau — menyorot kolom tanggal disertai peringatan apabila tanggal pada struk tidak terbaca (`date: null`).
-   - Pengguna bebas mengoreksi tanggal, mengedit nama/harga barang, menambah baris barang yang terlewat, atau menghapus baris sebelum menekan **Konfirmasi & Simpan**.
-   - Validasi ketat tahap 2 (`TransactionCreateRequest`) sebelum penyimpanan ke SQLite (tanggal kalender ISO `YYYY-MM-DD` valid, minimal 1 item, nama tidak kosong, harga integer murni `>= 0`).
-3. **Riwayat Transaksi Lengkap**
-   - Menampilkan daftar barang tersimpan terurut dari tanggal terbaru (`DESC`).
-   - Pencarian *case-insensitive substring* berdasarkan nama barang serta filter periode Bulan dan Tahun.
-   - Edit item (`name`, `price`, `date`) dan hapus per item maupun hapus keseluruhan struk/transaksi dengan konfirmasi (*cascade delete* & *orphan cleanup* otomatis).
-4. **Ringkasan Pengeluaran Bulanan & Grafik**
-   - Kartu metrik **Total Pengeluaran Bulanan** dan **Jumlah Barang Tercatat** yang dihitung deterministik oleh SQLite + Python.
-   - Grafik batang harian berbasis SVG murni (tanpa ketergantungan CDN eksternal, stabil saat offline) dan tabel rincian subtotal per tanggal.
+1. **Autentikasi Multi-User & Isolasi Data Ketat**
+   - Registrasi, login, dan logout berbasis `bcrypt` + JWT `HttpOnly` cookie (dengan fallback `Authorization: Bearer`).
+   - Setiap transaksi, pemasukan, anggaran, ekspor CSV, dan arsip foto struk terisolasi ketat berdasarkan `user_id`.
+2. **Upload & Ekstraksi Struk Berbasis AI + Kompresi & Retry**
+   - Mendukung *file picker* dan *drag-and-drop* (`JPG`, `JPEG`, `PNG`, maksimal **5 MB**) dengan validasi MIME/*magic bytes*, normalisasi EXIF, dan kompresi otomatis `Pillow` (lebar maksimum `1280px`).
+   - Ketahanan panggilan Gemini Vision dengan timeout 30 detik, *auto-retry* *exponential backoff*, dan dukungan `GEMINI_FALLBACK_MODEL`.
+   - Mengekstrak tanggal, nama barang, harga integer, dan saran kategori dari 7 kategori resmi tanpa menyimpan data toko/kasir/metode pembayaran.
+3. **Tabel Preview Editable (*Human-in-the-Loop*) & Input Manual**
+   - Pengguna dapat mengoreksi tanggal, nama barang, kategori, dan harga sebelum menekan **Konfirmasi & Simpan**, atau mencatat pengeluaran manual tanpa struk fisik.
+   - Mendukung arsip opsional foto struk terkompresi di penyimpanan lokal terkelola (`uploads/receipts/`).
+4. **Riwayat Transaksi & Ekspor CSV**
+   - Pencarian *case-insensitive*, filter Bulan, Tahun, dan Kategori, edit item, hapus item/transaksi (*cascade delete* & *orphan cleanup*), penampil foto struk terarsip, serta unduhan laporan `.csv` (UTF-8 BOM).
+5. **Pencatatan Pemasukan & Anggaran Bulanan (*Budgeting*)**
+   - Pencatatan pemasukan (`incomes`) dan pengaturan batas anggaran per kategori per bulan/tahun (`budgets`).
+   - Progress bar realisasi anggaran dengan indikator deterministik (`safe` < 80%, `warning` 80%–100%, `over_budget` > 100%).
+6. **Ringkasan Arus Kas Bulanan, Grafik Modern, & AI Financial Insights**
+   - Kartu metrik **Total Pemasukan**, **Total Pengeluaran**, **Arus Kas Bersih (*Net Balance*)**, dan **Kategori Terbesar**, dilengkapi grafik donat kategori & grafik batang harian (Recharts).
+   - Modul terpisah **AI Financial Insights** (on-demand) yang menghasilkan narasi analisis & saran penghematan hanya dari statistik agregat backend tanpa mengakses baris transaksi mentah.
 
 ---
 
@@ -30,12 +33,12 @@ Pengguna cukup mengunggah foto struk belanja (`JPG`, `JPEG`, atau `PNG`), memeri
 
 | Layer | Teknologi |
 | :--- | :--- |
-| **Backend & Static Server** | Python 3.10+, FastAPI, Uvicorn |
-| **Multimodal AI Layer** | Google Gemini Flash API via SDK resmi `google-genai` |
-| **Validasi Data** | Pydantic v2 |
-| **Database Lokal** | SQLite (`sqlite3` standar Python dengan `PRAGMA foreign_keys = ON`) |
-| **Frontend** | HTML5, CSS3, Vanilla JavaScript, SVG Bar Chart |
-| **Konfigurasi & Pengujian** | `python-dotenv`, `pytest`, FastAPI `TestClient` |
+| **Backend & Static Server** | Python 3.10+, FastAPI, Uvicorn, Pydantic v2 |
+| **Database & ORM Dual-Mode** | SQLAlchemy 2.x (SQLite lokal default + PostgreSQL `psycopg` v3 untuk produksi) |
+| **Autentikasi & Keamanan** | `bcrypt`, `PyJWT` (`HS256` `HttpOnly` cookie / Bearer) |
+| **Multimodal AI & Image** | Google Gemini Flash API (`google-genai`), `Pillow` |
+| **Frontend Modern** | React 18, TypeScript, Vite, Tailwind CSS, Recharts |
+| **Containerization & CI** | Docker (multi-stage), Docker Compose (`postgres:16-alpine`), GitHub Actions (`pytest` + `npm run build`) |
 
 ---
 
@@ -201,14 +204,8 @@ pytest -v
 
 ---
 
-## Batasan Ruang Lingkup MVP & Rencana Pengembangan
-
-### Batasan MVP v1.0
-Sesuai spesifikasi di [PRD.md](PRD.md), versi MVP v1.0 dirancang fokus untuk penggunaan personal lokal:
-* Tanpa sistem registrasi, login, multi-user, atau autentikasi sesi/JWT.
-* Ekstraksi struk dibatasi ketat hanya pada `date`, `items[].name`, dan `items[].price` (mengabaikan nama toko, alamat, kasir, metode pembayaran, pajak terpisah, dan kembalian).
-* Tanpa kategorisasi pengeluaran, pencatatan pemasukan (*income tracking*), penyimpanan permanen foto struk di disk, maupun ekspor CSV/Excel.
-
-### Rencana Pengembangan Berikutnya (*Future Improvements*)
-* **Fase v1.1:** Kategorisasi belanja otomatis dengan koreksi manual, ekspor laporan bulanan ke CSV/Excel, dan opsi arsip foto struk.
-* **Fase v2.0:** Autentikasi multi-user (JWT), pengaturan target anggaran bulanan (*budgeting* & pengingat batas pengeluaran), serta analitik tren pengeluaran lintas bulan.
+### Status Milestone Rilis
+* **v1.0.0 (MVP):** Ekstraksi struk Gemini Vision, validasi Pydantic 2 tahap, tabel preview *human-in-the-loop*, CRUD SQLite, dan ringkasan bulanan deterministik.
+* **v1.1.0 (Gelombang 1):** Kompresi `Pillow`, auto-retry/fallback model AI, 7 kategori pengeluaran, input manual, arsip foto struk lokal, dan ekspor CSV.
+* **v1.5.0 (Gelombang 2):** Modernisasi frontend ke React + TypeScript + Vite + Tailwind CSS + Recharts (`frontend-v2/`).
+* **v2.0.0 (Gelombang 3 — Selesai):** Docker + GitHub Actions CI, autentikasi multi-user (`bcrypt` + JWT), dual-mode SQLAlchemy (SQLite + PostgreSQL), pemasukan, budgeting per kategori, dan AI Financial Insights terpisah.

@@ -3,6 +3,7 @@ import { ToastBanner } from "./components/common/ToastBanner";
 import { AppHeader, type AppTab } from "./components/layout/AppHeader";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AuthPage } from "./pages/AuthPage";
+import { BudgetsAndIncomePage } from "./pages/BudgetsAndIncomePage";
 import { ExpenseEntryPage } from "./pages/ExpenseEntryPage";
 import { MonthlySummaryPage } from "./pages/MonthlySummaryPage";
 import { TransactionHistoryPage } from "./pages/TransactionHistoryPage";
@@ -71,6 +72,13 @@ function AuthenticatedWorkspace() {
             refreshKey={dataVersion}
             onDataMutated={handleDataChanged}
             onGoToEntry={() => setActiveTab("entry")}
+          />
+        ) : null}
+
+        {activeTab === "budgets" ? (
+          <BudgetsAndIncomePage
+            refreshKey={dataVersion}
+            onDataMutated={handleDataChanged}
           />
         ) : null}
 

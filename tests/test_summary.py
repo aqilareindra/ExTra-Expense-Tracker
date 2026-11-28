@@ -58,6 +58,8 @@ class TestMonthlySummaryService:
             "month": 11,
             "year": 2026,
             "total_expense": 0,
+            "total_income": 0,
+            "net_balance": 0,
             "total_items": 0,
             "daily_breakdown": [],
             "category_breakdown": [],

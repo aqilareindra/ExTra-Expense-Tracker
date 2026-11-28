@@ -1,10 +1,10 @@
-"""Layanan kalkulasi deterministik ringkasan pengeluaran bulanan (SQLite & PostgreSQL)."""
+"""Layanan kalkulasi deterministik ringkasan pengeluaran & arus kas bulanan (SQLite & PostgreSQL)."""
 
 from pathlib import Path
 
 from sqlalchemy import func, select
 
-from backend.database import Transaction, TransactionItem, session_scope
+from backend.database import Income, Transaction, TransactionItem, session_scope
 from backend.schemas.summary import (
     CategoryExpenseBreakdown,
     DailyExpenseBreakdown,
@@ -18,7 +18,7 @@ def get_monthly_summary(
     user_id: int,
     db_path: str | Path | None = None,
 ) -> MonthlySummaryResponse:
-    """Hitung total pengeluaran, jumlah barang, agregasi harian, dan kategori khusus milik user_id."""
+    """Hitung pengeluaran, pemasukan, arus kas bersih, dan agregasi kategori milik user_id."""
     if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
         raise ValueError("user_id harus berupa integer positif.")
     if isinstance(month, bool) or not isinstance(month, int) or not 1 <= month <= 12:
@@ -65,6 +65,17 @@ def get_monthly_summary(
             .order_by(category_total_expr.desc(), TransactionItem.category.asc())
         ).all()
 
+        total_income = int(
+            session.scalar(
+                select(func.coalesce(func.sum(Income.amount), 0)).where(
+                    Income.user_id == user_id,
+                    Income.income_date >= start_date,
+                    Income.income_date <= end_date,
+                )
+            )
+            or 0
+        )
+
     daily_breakdown = [
         DailyExpenseBreakdown(
             date=str(row.date),
@@ -85,12 +96,15 @@ def get_monthly_summary(
 
     total_expense = sum(entry.total for entry in daily_breakdown)
     total_items = sum(entry.item_count for entry in daily_breakdown)
+    net_balance = total_income - total_expense
 
     return MonthlySummaryResponse(
         status="success",
         month=month,
         year=year,
         total_expense=total_expense,
+        total_income=total_income,
+        net_balance=net_balance,
         total_items=total_items,
         daily_breakdown=daily_breakdown,
         category_breakdown=category_breakdown,
